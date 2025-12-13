@@ -48,13 +48,18 @@ export default function App() {
   const navRef = useRef<HTMLDivElement>(null);
   
   // Rank Calculation Logic
+  const maxCount = itemsPerSeason * 4 * YEARS_LEN;
+
   const getRank = (count: number): OtakuRank => {
     if (count === 0) return '现充';
-    if (count < Math.trunc(itemsPerSeason / 2 * YEARS_LEN)) return '路人';
-    if (count < Math.trunc(itemsPerSeason / 2 * YEARS_LEN)) return '动画爱好者';
-    if (count < Math.trunc(itemsPerSeason / 2 * YEARS_LEN)) return '老二次元';
-    if (count < Math.trunc(itemsPerSeason / 2 * YEARS_LEN)) return '萌豚';
-    if (count < Math.trunc(itemsPerSeason / 2 * YEARS_LEN)) return '婆罗门';
+
+    const ratio = count / maxCount;
+
+    if (ratio < 0.1) return '路人';
+    if (ratio < 0.25) return '动画爱好者';
+    if (ratio < 0.45) return '老二次元';
+    if (ratio < 0.65) return '萌豚';
+    if (ratio < 0.85) return '婆罗门';
     return '动漫之神';
   };
 
