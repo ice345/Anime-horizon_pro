@@ -55,7 +55,7 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose, l
               {/* Roast Card */}
               <div className="bg-gradient-to-br from-red-900/20 to-slate-900/50 rounded-xl p-6 border border-red-500/20 shadow-lg">
                 <h3 className="text-lg font-bold text-red-400 mb-3 flex items-center gap-2">
-                   <span className="text-xl">🔥</span> 毒舌点评
+                   <span className="text-xl">🔥</span> 点评
                 </h3>
                 <p className="text-gray-200 leading-relaxed text-justify tracking-wide">
                   {data.roast}
