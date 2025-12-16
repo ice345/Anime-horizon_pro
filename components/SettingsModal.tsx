@@ -5,13 +5,18 @@ interface SettingsModalProps {
   onClose: () => void;
   itemsPerSeason: number;
   setItemsPerSeason: (val: number) => void;
+  startYear: number;
+  endYear: number;
+  minYear: number;
+  maxYear: number;
+  onYearRangeChange: (start: number, end: number) => void;
   onExportJson: () => void;
   onImportJson: (file: File) => void;
   onClearCache: () => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({ 
-  isOpen, onClose, itemsPerSeason, setItemsPerSeason, onExportJson, onImportJson, onClearCache 
+  isOpen, onClose, itemsPerSeason, setItemsPerSeason, startYear, endYear, minYear, maxYear, onYearRangeChange, onExportJson, onImportJson, onClearCache 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -22,6 +27,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
       onImportJson(e.target.files[0]);
     }
   };
+
+  const clampYear = (value: number) => Math.min(maxYear, Math.max(minYear, value));
+  const yearOptions = Array.from({ length: maxYear - minYear + 1 }, (_, i) => maxYear - i);
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
@@ -66,6 +74,50 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <p className="text-xs text-gray-500">
               控制每次向 Anilist API 请求的番剧数量。数值越大，加载时间越长，但能覆盖更多冷门番剧。
               <br/>(修改后需点击下方"清理缓存"生效)
+            </p>
+          </div>
+
+          {/* Year range control */}
+          <div className="space-y-3">
+            <div className="flex justify-between items-end">
+              <label className="text-sm font-bold text-gray-300 flex items-center gap-2">
+                📅 年份范围
+              </label>
+              <span className="text-sm text-gray-400 font-mono">{startYear} - {endYear}</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <span className="text-[11px] text-gray-500">起始年份</span>
+                <select
+                  value={startYear}
+                  onChange={(e) => onYearRangeChange(clampYear(Number(e.target.value)), endYear)}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-anime-highlight/70"
+                >
+                  {yearOptions.map((year) => (
+                    <option key={`start-${year}`} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <span className="text-[11px] text-gray-500">结束年份</span>
+                <select
+                  value={endYear}
+                  onChange={(e) => onYearRangeChange(startYear, clampYear(Number(e.target.value)))}
+                  className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-anime-highlight/70"
+                >
+                  {yearOptions.map((year) => (
+                    <option key={`end-${year}`} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              设置时间轴范围（若起止相同则仅显示该年）。范围超出时将自动收敛至支持区间。
             </p>
           </div>
 

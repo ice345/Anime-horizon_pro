@@ -6,8 +6,11 @@ interface AnalysisModalProps {
   onClose: () => void;
   loading: boolean;
   data: {
+    tags?: string[];
     roast?: string;
     personality?: string;
+    avoid?: Array<{ title: string; reason: string }> | string;
+    goldenEra?: string;
     recommendations?: Array<{ title: string; reason: string }>;
   } | null;
   count: number;
@@ -52,6 +55,18 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose, l
             </div>
           ) : data ? (
             <>
+              {/* Tags */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10 shadow-lg flex flex-wrap gap-2">
+                {(data.tags || []).map((tag, idx) => (
+                  <span
+                    key={`tag-${idx}`}
+                    className="px-3 py-1 rounded-full text-sm font-bold bg-anime-highlight/20 text-anime-highlight border border-anime-highlight/40"
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+
               {/* Roast Card */}
               <div className="bg-gradient-to-br from-red-900/20 to-slate-900/50 rounded-xl p-6 border border-red-500/20 shadow-lg">
                 <h3 className="text-lg font-bold text-red-400 mb-3 flex items-center gap-2">
@@ -70,6 +85,33 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose, l
                 <p className="text-gray-200 leading-relaxed italic border-l-2 border-anime-primary/50 pl-4">
                   "{data.personality}"
                 </p>
+              </div>
+
+              {/* Avoid List */}
+              <div className="bg-gradient-to-br from-yellow-900/15 to-slate-900/50 rounded-xl p-6 border border-yellow-500/20 shadow-lg">
+                <h3 className="text-lg font-bold text-yellow-300 mb-3 flex items-center gap-2">
+                  <span className="text-xl">⚠️</span> 避雷预警
+                </h3>
+                {Array.isArray(data.avoid) ? (
+                  <div className="space-y-3">
+                    {data.avoid.map((item, idx) => (
+                      <div key={`avoid-${idx}`} className="flex flex-col gap-1 bg-white/5 border border-white/10 rounded-lg px-3 py-2">
+                        <div className="text-sm font-bold text-yellow-200">{item.title}</div>
+                        <div className="text-sm text-gray-200 leading-relaxed">{item.reason}</div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-200 leading-relaxed">{data.avoid}</p>
+                )}
+              </div>
+
+              {/* Golden Era */}
+              <div className="bg-gradient-to-br from-blue-900/15 to-slate-900/50 rounded-xl p-6 border border-blue-500/20 shadow-lg">
+                <h3 className="text-lg font-bold text-blue-300 mb-3 flex items-center gap-2">
+                  <span className="text-xl">⏳</span> 黄金年代
+                </h3>
+                <p className="text-gray-200 leading-relaxed">{data.goldenEra}</p>
               </div>
 
               {/* Recommendations */}

@@ -11,6 +11,8 @@ export default defineConfig(({ mode }) => {
     // 在 Render 上，process.env.GEMINI_API_KEY 会有值。
     // 在本地，env.GEMINI_API_KEY 会有值。
     const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+    // 阿里云通义千问：本地 .env 优先，其次系统环境变量
+    const aliyunKey = env.ALIYUN_API_KEY || process.env.ALIYUN_API_KEY;
 
     return {
       server: {
@@ -24,7 +26,10 @@ export default defineConfig(({ mode }) => {
         'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
         
         // 如果你的代码里还用了 process.env.API_KEY，也顺便注入一下
-        'process.env.API_KEY': JSON.stringify(geminiKey)
+        'process.env.API_KEY': JSON.stringify(geminiKey),
+
+        // Aliyun (DashScope 兼容模式)
+        'process.env.ALIYUN_API_KEY': JSON.stringify(aliyunKey)
       },
       resolve: {
         alias: {

@@ -13,22 +13,45 @@ import { OtakuRank, Season, SEASONS, SEASON_CN, Anime } from './types';
 const CURRENT_DATE = new Date();
 const CURRENT_REAL_YEAR = CURRENT_DATE.getFullYear();
 const MAX_LOOKAHEAD = 1; // Always show 1 year into the future for upcoming anime
-const START_YEAR = 2000; // Extend history back to 2000
+const DEFAULT_START_YEAR = 2000; // Extend history back to 2000
+const DEFAULT_END_YEAR = CURRENT_REAL_YEAR + MAX_LOOKAHEAD;
 
-// Generates array like [2026, 2025, ..., 2000]
-const YEARS = Array.from(
-  { length: (CURRENT_REAL_YEAR + MAX_LOOKAHEAD) - START_YEAR + 1 }, 
-  (_, i) => (CURRENT_REAL_YEAR + MAX_LOOKAHEAD) - i
-);
-
-const YEARS_LEN = YEARS.length;
+const buildYears = (start: number, end: number) => {
+  const safeStart = Math.max(DEFAULT_START_YEAR, Math.min(start, DEFAULT_END_YEAR));
+  const safeEnd = Math.max(safeStart, Math.min(end, DEFAULT_END_YEAR));
+  const length = safeEnd - safeStart + 1;
+  return Array.from({ length }, (_, i) => safeEnd - i);
+};
 
 export default function App() {
+  const loadSavedYearRange = () => {
+    const fallback = { start: DEFAULT_START_YEAR, end: DEFAULT_END_YEAR };
+    if (typeof window === 'undefined') return fallback;
+    try {
+      const raw = localStorage.getItem('anime-horizon-year-range');
+      if (!raw) return fallback;
+      const parsed = JSON.parse(raw);
+      const start = Number(parsed.start) || DEFAULT_START_YEAR;
+      const end = Number(parsed.end) || DEFAULT_END_YEAR;
+      const normalized = buildYears(start, end);
+      return { start: normalized[normalized.length - 1], end: normalized[0] };
+    } catch (e) {
+      console.warn('Failed to load year range from storage', e);
+      return fallback;
+    }
+  };
+
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map());
+  const [yearRange, setYearRange] = useState<{ start: number; end: number }>(loadSavedYearRange);
+  const years = useMemo(() => buildYears(yearRange.start, yearRange.end), [yearRange]);
+  const YEARS_LEN = years.length;
+  const [activeYear, setActiveYear] = useState<number>(() => {
+    const current = CURRENT_REAL_YEAR;
+    if (current >= yearRange.start && current <= yearRange.end) return current;
+    return yearRange.end;
+  });
   
-  // Default to the actual current year, not the future year
-  const [activeYear, setActiveYear] = useState<number>(CURRENT_REAL_YEAR);
   const [animeList, setAnimeList] = useState<Anime[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -86,6 +109,18 @@ export default function App() {
     localStorage.setItem('anime-horizon-details-v3', JSON.stringify(Array.from(selectedAnimeDetails.values())));
   }, [selectedIds, selectedAnimeDetails]);
 
+  // Persist year range
+  useEffect(() => {
+    localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
+  }, [yearRange]);
+
+  // Keep active year within range
+  useEffect(() => {
+    if (activeYear < yearRange.start || activeYear > yearRange.end) {
+      setActiveYear(yearRange.end);
+    }
+  }, [yearRange, activeYear]);
+
   // Fetch data when year or limit changes
   const loadData = async (forceObj?: {year: number, limit: number}) => {
     const y = forceObj ? forceObj.year : activeYear;
@@ -112,6 +147,11 @@ export default function App() {
     setItemsPerSeason(newLimit);
   };
 
+  const handleYearRangeChange = (start: number, end: number) => {
+    const normalized = buildYears(start, end);
+    setYearRange({ start: normalized[normalized.length - 1], end: normalized[0] });
+  };
+
   const handleClearCacheAndReload = () => {
     clearAnimeCache();
     loadData({ year: activeYear, limit: itemsPerSeason });
@@ -123,7 +163,11 @@ export default function App() {
     const exportData = {
       version: 1,
       timestamp: new Date().toISOString(),
-      config: { itemsPerSeason },
+      config: { 
+        itemsPerSeason,
+        startYear: yearRange.start,
+        endYear: yearRange.end
+      },
       userSelection: Array.from(selectedIds),
       userDetails: Array.from(selectedAnimeDetails.values()),
       // Note: We only export the currently loaded year + user selection to avoid massive files, 
@@ -153,6 +197,9 @@ export default function App() {
             setSelectedAnimeDetails(map);
         }
         if (json.config?.itemsPerSeason) setItemsPerSeason(json.config.itemsPerSeason);
+        if (json.config?.startYear && json.config?.endYear) {
+          handleYearRangeChange(json.config.startYear, json.config.endYear);
+        }
         
         // If import has current view data, load it to avoid fetch
         if (json.currentViewData) {
@@ -201,6 +248,10 @@ export default function App() {
 
   const rank = getRank(selectedIds.size);
   const progressPercent = Math.min((selectedIds.size / 300) * 100, 100);
+  const displayEndYear = years[0] || yearRange.end;
+  const displayStartYear = years[years.length - 1] || yearRange.start;
+  const minSelectableYear = DEFAULT_START_YEAR;
+  const maxSelectableYear = DEFAULT_END_YEAR;
 
   const handleAnalyze = async () => {
     if (selectedIds.size === 0) return;
@@ -286,7 +337,7 @@ export default function App() {
         <div className="flex items-center justify-center gap-4 mt-3">
           <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/30"></div>
           <p className="text-xs md:text-sm text-slate-400 font-bold tracking-[0.3em] uppercase opacity-80">
-            Chronicles {YEARS[0]} - {YEARS[YEARS.length-1]}
+            Chronicles {displayEndYear} - {displayStartYear}
           </p>
           <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/30"></div>
         </div>
@@ -303,7 +354,7 @@ export default function App() {
           onMouseMove={handleMouseMove}
         >
           <div className="flex px-6 w-max mx-auto md:mx-0">
-            {YEARS.map(year => (
+            {years.map(year => (
               <button
                 key={year}
                 onClick={() => setActiveYear(year)}
@@ -451,6 +502,11 @@ export default function App() {
         onClose={() => setIsSettingsOpen(false)}
         itemsPerSeason={itemsPerSeason}
         setItemsPerSeason={handleConfigChange}
+        startYear={yearRange.start}
+        endYear={yearRange.end}
+        minYear={minSelectableYear}
+        maxYear={maxSelectableYear}
+        onYearRangeChange={handleYearRangeChange}
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         onClearCache={handleClearCacheAndReload}
