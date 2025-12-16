@@ -5,7 +5,7 @@
 ## 📋 前置要求
 
   - **Node.js**: 18.0 或更高版本
-  - **API Key**: Google Gemini API Key（用于 AI 分析功能）
+  - **API Key**: Google Gemini API Key 和 Aliyun API Key（用于 AI 分析功能）
 
 ## 🚀 快速开始
 
@@ -16,10 +16,11 @@
     ```
 
 2.  **配置环境变量**
-    复制 `.env.local.example`（如果有）或新建 `.env.local` 文件，并填入你的 Gemini API Key：
+    复制 `.env.local.example`（如果有）或新建 `.env.local` 文件，并填入你的 Gemini API Key 和 Aliyun API Key：
 
     ```env
     GEMINI_API_KEY=your_api_key_here
+    ALIYUN_API_KEY=your_aliyun_api_key_here
     ```
 
 3.  **准备数据（推荐）**

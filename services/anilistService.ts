@@ -122,27 +122,38 @@ async function fetchRemoteByYear(year: number, perSeason: number): Promise<Anime
   const seasons: Season[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
   let yearAnime: Anime[] = [];
 
-  // Fetch seasons sequentially to respect rate limits
   for (const season of seasons) {
-    try {
-      // Intentional delay between season fetches
-      if (yearAnime.length > 0) {
-        await delay(CONFIG.SEASON_DELAY);
-      }
+    let page = 1;
+    let hasNext = true;
 
-      const data = await fetchWithRetry({
-        year,
-        season,
-        page: 1,
-        perPage: perSeason
-      });
+    while (hasNext && page <= 3) {
+      try {
+        if (yearAnime.length > 0) {
+          await delay(CONFIG.PAGE_DELAY);
+        }
 
-      if (data?.Page?.media) {
-        yearAnime = [...yearAnime, ...data.Page.media];
+        const data = await fetchWithRetry({
+          year,
+          season,
+          page,
+          perPage: perSeason
+        });
+
+        if (data?.Page?.media) {
+          yearAnime.push(...data.Page.media);
+        }
+
+        hasNext = data?.Page?.pageInfo?.hasNextPage;
+        page++;
+
+      } catch (e) {
+        console.error(`Failed ${year} ${season} page ${page}`, e);
+        break; // 出问题直接跳出该季度
       }
-    } catch (e) {
-      console.error(`Failed to fetch ${year} ${season}`, e);
     }
+
+    // 季度之间额外缓冲
+    await delay(CONFIG.SEASON_DELAY);
   }
 
   return yearAnime;
