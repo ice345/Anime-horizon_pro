@@ -20,11 +20,19 @@ const animeCache: Record<string, Anime[]> = {};
 
 const QUERY = `
 query ($year: Int, $season: MediaSeason, $page: Int, $perPage: Int) {
-  Page (page: $page, perPage: $perPage) {
+  Page(page: $page, perPage: $perPage) {
     pageInfo {
       hasNextPage
     }
-    media (season: $season, seasonYear: $year, type: ANIME, sort: POPULARITY_DESC, isAdult: false) {
+    media(
+      season: $season
+      seasonYear: $year
+      type: ANIME
+      countryOfOrigin: JP
+      isAdult: false
+      sort: [SCORE_DESC, POPULARITY_DESC]
+      format_in: [TV,TV_SHORT, MOVIE, OVA, ONA]
+    ) {
       id
       title {
         romaji
@@ -37,7 +45,7 @@ query ($year: Int, $season: MediaSeason, $page: Int, $perPage: Int) {
         color
       }
       bannerImage
-      description(asHtml: false) 
+      description(asHtml: false)
       format
       season
       seasonYear

@@ -47,7 +47,7 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
 
     1. 成分标签（tags）
     - 必须是数组
-    - 正好 4 个元素
+    - 正好 6 个元素
     - 每个元素为 2~5 个汉字
     - 用于概括用户的二次元属性与审美取向
     - 可以参考以下示例生成风格相近的标签：
@@ -105,7 +105,7 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
 
     示例结构（仅示意结构，内容需重新生成）：
     {
-      "tags": ["示例一", "示例二", "示例三", "示例四"],
+      "tags": ["示例一", "示例二", "示例三", "示例四", "示例五", "示例六"],
       "analysis": "示例文本",
       "personality": "示例文本",
       "avoid": [
@@ -123,7 +123,7 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
     
     再给你一个示例:
     {
-      "tags": ["string", "string", "string", "string"],
+      "tags": ["string", "string", "string", "string", "string", "string"],
       "analysis": "string",
       "personality": "string",
       "avoid": "string",
