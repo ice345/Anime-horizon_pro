@@ -253,20 +253,22 @@ if (status === 'IDLE') {
   }
 
   return (
-    // 修改點 1: 使用 flex-1 而不是 h-full，確保它只佔用 Modal 剩餘的空間
-    <div className="flex flex-col flex-1 min-h-0 bg-[#0f0f12] relative">
-      
-      {/* 修改點 2: 子 Header 使用更高層級，並確保不被遮擋 */}
-      <div className="shrink-0 px-4 py-2.5 bg-black/60 backdrop-blur-md flex justify-between items-center text-[10px] font-mono border-b border-white/5 z-20">
-        <div className="flex items-center gap-3">
-          <span className={`px-2 py-0.5 rounded-full ${roundsLeft < 3 ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}`}>
-            ROUNDS: {roundsLeft}
-          </span>
-          <span className="text-gray-600">|</span>
-          <span className="text-orange-400/80 uppercase">Guess: {guessAttemptsLeft}</span>
+    <div className="flex flex-col flex-1 min-h-0 bg-gradient-to-br from-[#0c0c12] via-[#0f0f18] to-[#0b0b10] relative overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(111,66,193,0.12),transparent_35%),radial-gradient(circle_at_80%_10%,rgba(59,130,246,0.12),transparent_32%),radial-gradient(circle_at_50%_80%,rgba(236,72,153,0.08),transparent_30%)]" />
+
+      <div className="shrink-0 px-4 py-3 bg-black/65 backdrop-blur-xl flex justify-between items-center text-[11px] font-mono border-b border-white/5 z-20 shadow-[0_12px_40px_rgba(0,0,0,0.35)] relative">
+        <div className="flex items-center gap-2">
+          <div className={`px-3 py-1 rounded-full flex items-center gap-1 ${roundsLeft < 3 ? 'bg-red-500/20 text-red-300 border border-red-400/30' : 'bg-blue-500/15 text-blue-200 border border-blue-400/30'}`}>
+            <span className="text-[10px] tracking-widest">ROUNDS</span>
+            <span className="font-bold text-sm">{roundsLeft}</span>
+          </div>
+          <div className="px-3 py-1 rounded-full bg-purple-500/15 text-purple-200 border border-purple-400/30 flex items-center gap-1">
+            <span className="text-[10px] tracking-widest">GUESS</span>
+            <span className="font-bold text-sm">{guessAttemptsLeft}</span>
+          </div>
         </div>
 
-        <div className="flex gap-4">
+        <div className="flex items-center gap-3">
           <button
             disabled={hintUsed || status !== 'PLAYING'}
             onClick={() => {
@@ -276,38 +278,43 @@ if (status === 'IDLE') {
                 addMessage('ai', `💡 提示：${secretRef.current.hint}`, 'system');
               }
             }}
-            className={`transition-colors ${hintUsed ? 'text-gray-700' : 'text-yellow-500 hover:text-yellow-400'}`}
+            className={`px-3 py-1 rounded-full border text-[11px] transition-all ${
+              hintUsed
+                ? 'border-gray-700 text-gray-600 cursor-not-allowed'
+                : 'border-yellow-400/40 text-yellow-300 hover:border-yellow-300 hover:text-yellow-200'
+            }`}
           >
             {hintUsed ? 'HINT USED' : 'GET HINT (-1R)'}
           </button>
           {status === 'PLAYING' && (
-            <button onClick={handleSurrender} className="text-red-500/70 hover:text-red-400 font-bold transition-colors">
+            <button onClick={handleSurrender} className="px-3 py-1 rounded-full border border-red-400/40 text-red-300 hover:border-red-300 hover:text-red-200 text-[11px] font-bold transition-all">
               GIVE UP
             </button>
           )}
         </div>
       </div>
 
-      {/* 修改點 3: 聊天區域優化 */}
       <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar p-4 relative z-10">
-        {/* 如果想讓對話在數量少時也顯得「滿」，可以加一個 min-h-full 的容器 */}
         <div className="flex flex-col justify-end min-h-full space-y-4">
           {status === 'LOADING' && (
-            <div className="flex flex-col items-center justify-center py-20 space-y-4">
-              <div className="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
-              <p className="text-gray-500 text-sm animate-pulse font-jp">正在讀取世界線...</p>
+            <div className="flex flex-col items-center justify-center py-16 space-y-4">
+              <div className="relative w-10 h-10">
+                <div className="absolute inset-0 rounded-full border-2 border-purple-500/40 animate-ping" />
+                <div className="absolute inset-2 rounded-full border-2 border-blue-400/50 animate-spin" />
+              </div>
+              <p className="text-gray-400 text-sm font-jp tracking-wide">正在召唤 Oracle...</p>
             </div>
           )}
 
           {messages.map((m, i) => (
             <div key={i} className={`flex ${m.sender === 'user' ? 'justify-end' : 'justify-start'} animate-slide-in`}>
               <div className={`
-                max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm
-                ${m.type === 'win' && 'bg-gradient-to-br from-green-500 to-emerald-700 text-white border border-green-400/30'}
-                ${m.type === 'lose' && 'bg-gradient-to-br from-red-500 to-red-800 text-white border border-red-400/30'}
-                ${m.type === 'system' && 'bg-white/5 text-gray-500 text-[11px] font-mono italic mx-auto text-center !rounded-md border border-white/5'}
-                ${m.type === 'text' && m.sender === 'user' && 'bg-purple-600 text-white ml-8 shadow-purple-500/20'}
-                ${m.type === 'text' && m.sender === 'ai' && 'bg-[#1e1e22] text-gray-200 mr-8 border border-white/5'}
+                max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed shadow-sm backdrop-blur-md
+                ${m.type === 'win' ? 'bg-gradient-to-br from-green-500 to-emerald-700 text-white border border-green-400/30 shadow-[0_10px_30px_rgba(16,185,129,0.35)]' : ''}
+                ${m.type === 'lose' ? 'bg-gradient-to-br from-red-500 to-red-800 text-white border border-red-400/30 shadow-[0_10px_30px_rgba(239,68,68,0.35)]' : ''}
+                ${m.type === 'system' ? 'bg-white/5 text-gray-400 text-[11px] font-mono italic mx-auto text-center !rounded-md border border-white/10 tracking-wide' : ''}
+                ${m.type === 'text' && m.sender === 'user' ? 'bg-gradient-to-br from-purple-600 to-indigo-700 text-white ml-8 shadow-[0_10px_30px_rgba(99,102,241,0.35)]' : ''}
+                ${m.type === 'text' && m.sender === 'ai' ? 'bg-[#16161c]/90 text-gray-200 mr-8 border border-white/10 shadow-[0_12px_36px_rgba(0,0,0,0.35)]' : ''}
               `}>
                 {m.text}
               </div>
@@ -317,8 +324,7 @@ if (status === 'IDLE') {
         </div>
       </div>
 
-      {/* 修改點 4: Footer 固定在底部，不隨內容滾動 */}
-      <div className="shrink-0 p-4 bg-black/40 backdrop-blur-md border-t border-white/5 relative z-20">
+      <div className="shrink-0 p-4 bg-black/55 backdrop-blur-xl border-t border-white/5 relative z-20 shadow-[0_-12px_40px_rgba(0,0,0,0.35)]">
         {(status === 'WIN' || status === 'LOSE') ? (
           <div className="flex gap-3">
             <button onClick={onBack} className="flex-1 py-3 rounded-xl border border-white/10 text-white text-sm hover:bg-white/5 transition-colors">
@@ -336,25 +342,25 @@ if (status === 'IDLE') {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && handleAsk()}
                 placeholder="輸入你的問題（如：是女性嗎？）"
-                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500/50 transition-colors"
+                className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-purple-500/50 transition-colors shadow-inner shadow-black/30"
               />
               <button
                 onClick={handleAsk}
-                className="w-12 h-12 flex items-center justify-center bg-purple-600 hover:bg-purple-500 text-white rounded-xl transition-all active:scale-95"
+                className="w-12 h-12 flex items-center justify-center bg-gradient-to-br from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-xl transition-all active:scale-95 shadow-[0_8px_24px_rgba(99,102,241,0.35)]"
               >
                 <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-8.707l-3-3a1 1 0 00-1.414 1.414L10.586 9H7a1 1 0 100 2h3.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414z" clipRule="evenodd" />
                 </svg>
               </button>
             </div>
-            <div className="flex justify-between items-center px-1">
-              <span className="text-[10px] text-gray-500 uppercase tracking-widest font-mono">Terminal Protocol active</span>
+            <div className="flex justify-between items-center px-1 text-[11px]">
+              <span className="text-gray-500 uppercase tracking-widest font-mono">Oracle link stable</span>
               <button
                 onClick={handleGuess}
                 disabled={guessAttemptsLeft <= 0}
-                className={`text-[11px] px-4 py-1.5 rounded-full border transition-all ${
+                className={`px-4 py-1.5 rounded-full border transition-all ${
                   guessAttemptsLeft > 0
-                    ? 'border-blue-500/50 text-blue-400 hover:bg-blue-500/10'
+                    ? 'border-blue-400/50 text-blue-200 hover:bg-blue-500/10'
                     : 'border-gray-800 text-gray-700 cursor-not-allowed'
                 }`}
               >

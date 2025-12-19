@@ -2,11 +2,20 @@ import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
 // 默认优先使用用户配置（当前 deepseek-v3.2），回退到通义千问系列较稳的档位
-const ALIYUN_MODEL = 'qwen-plus';
-const ALIYUN_FALLBACK_MODELS = ['qwen-turbo','deepseek-v3.2', 'qwen-flash', 'qwen3-max', 'qwen-max'];
+const ALIYUN_MODEL = 'deepseek-v3.2';
+const ALIYUN_FALLBACK_MODELS = ['qwen-turbo','qwen-plus', 'qwen-flash', 'qwen3-max', 'qwen-max'];
 const ALIYUN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
-const TIMEOUT_MS = 20000;
+const TIMEOUT_MS = 12000;
 const PREFER_ALIYUN = process.env.ALIYUN_ONLY === 'true' || process.env.USE_ALIYUN_FIRST === 'true';
+
+// Simple in-memory recency buckets to reduce repetition
+const recentEmojiTitles: string[] = [];
+const rememberRecent = (bucket: string[], value: string, max = 6) => {
+  if (!value) return;
+  if (bucket.includes(value)) return;
+  bucket.unshift(value);
+  if (bucket.length > max) bucket.pop();
+};
 
 let client: GoogleGenAI | null = null;
 
@@ -414,12 +423,28 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
     return parseJsonSafe(response.text);
   };
 
+  const canAliyun = Boolean(getAliyunKey());
+
   if (PREFER_ALIYUN || !process.env.API_KEY) {
     try {
       return await callAliyunRaw(prompt);
     } catch (e) {
       console.warn('Aliyun game start failed, trying Gemini:', e);
       return await tryGemini();
+    }
+  }
+
+  if (canAliyun) {
+    try {
+      // Race both providers; take the fastest success to reduce wait
+      return await Promise.any([tryGemini(), callAliyunRaw(prompt)]);
+    } catch (e) {
+      console.warn('Race failed, fallback Gemini->Aliyun', e);
+      try {
+        return await tryGemini();
+      } catch {
+        return await callAliyunRaw(prompt);
+      }
     }
   }
 
@@ -432,13 +457,15 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
 };
 
 export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
-  const seed = Date.now() + Math.random();
+  const makeSeed = () => Date.now() + Math.random();
+  let seed = makeSeed();
 
-  const prompt = `
+  const buildPrompt = (currentSeed: number) => `
     任务：随机选择一部日本动画（2000-2024）。
     返回标题，并用 3~5 个 Emoji 抽象描述核心元素。
     Emoji 需有辨识度但不要过于直白。
-    随机种子：${seed}。
+    避免重复这些最近出现的题目：${recentEmojiTitles.join(', ') || '无'}。
+    随机种子：${currentSeed}。
 
     返回 JSON：{
       "title": "动画标题 (中文)",
@@ -447,34 +474,67 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
     }
   `;
 
-  const tryGemini = async () => {
+  const tryGemini = async (currentSeed: number) => {
     const ai = getClient();
     if (!ai) throw new Error("API Key missing");
     const response = await runWithTimeout(
       ai.models.generateContent({
         model: GEMINI_MODEL,
-        contents: prompt,
+        contents: buildPrompt(currentSeed),
         config: { responseMimeType: 'application/json' }
       })
     );
     return parseJsonSafe(response.text);
   };
 
-  if (PREFER_ALIYUN || !process.env.API_KEY) {
-    try {
-      return await callAliyunRaw(prompt);
-    } catch (e) {
-      console.warn('Aliyun emoji game failed, trying Gemini:', e);
-      return await tryGemini();
+  const tryAliyun = async (currentSeed: number) => callAliyunRaw(buildPrompt(currentSeed));
+  const canAliyun = Boolean(getAliyunKey());
+
+  const runOnce = async (currentSeed: number) => {
+    if (PREFER_ALIYUN || !process.env.API_KEY) {
+      try {
+        return await tryAliyun(currentSeed);
+      } catch (e) {
+        console.warn('Aliyun emoji game failed, trying Gemini:', e);
+        return await tryGemini(currentSeed);
+      }
     }
+
+    if (canAliyun) {
+      try {
+        return await Promise.any([tryGemini(currentSeed), tryAliyun(currentSeed)]);
+      } catch (e) {
+        console.warn('Emoji race failed, fallback Gemini->Aliyun', e);
+        try {
+          return await tryGemini(currentSeed);
+        } catch {
+          return await tryAliyun(currentSeed);
+        }
+      }
+    }
+
+    try {
+      return await tryGemini(currentSeed);
+    } catch (e) {
+      console.warn('Gemini emoji game failed, trying Aliyun:', e);
+      return await tryAliyun(currentSeed);
+    }
+  };
+
+  // Avoid repeated hot titles by rerolling if recently served
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const result = await runOnce(seed);
+    if (!result?.title || !recentEmojiTitles.includes(result.title) || attempt === 2) {
+      rememberRecent(recentEmojiTitles, result?.title || '');
+      return result;
+    }
+    seed = makeSeed();
   }
 
-  try {
-    return await tryGemini();
-  } catch (e) {
-    console.warn('Gemini emoji game failed, trying Aliyun:', e);
-    return await callAliyunRaw(prompt);
-  }
+  // Fallback: single fetch
+  const res = await runOnce(seed);
+  rememberRecent(recentEmojiTitles, res?.title || '');
+  return res;
 };
 
 export const askGameOracle = async (secret: GameCharacter, question: string): Promise<{ answer: 'YES' | 'NO' | 'UNKNOWN', flavorText: string }> => {
