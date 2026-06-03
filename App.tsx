@@ -4,9 +4,11 @@ import { AnalysisModal } from './components/AnalysisModal';
 import { SqlExportModal } from './components/SqlExportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GameModal } from './components/GameModal';
+import { TasteQuizModal } from './components/TasteQuizModal';
 import { analyzeAnimeTaste } from './services/geminiService';
 import { fetchAnimeByYear, clearAnimeCache } from './services/anilistService';
 import { OtakuRank, Season, SEASONS, SEASON_CN, Anime } from './types';
+import lizuHero from './pics/LizuToAoiTori_sora.png';
 
 
 // --- DYNAMIC YEAR GENERATION ---
@@ -61,30 +63,27 @@ export default function App() {
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGameOpen, setIsGameOpen] = useState(false);
+  const [isTasteQuizOpen, setIsTasteQuizOpen] = useState(false);
   
   // Analysis
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
+  const [quickTasteProfile, setQuickTasteProfile] = useState<{ inputs: string[]; rank: OtakuRank } | null>(null);
 
   // Config
-  const [itemsPerSeason, setItemsPerSeason] = useState(30);
+  const [itemsPerSeason, setItemsPerSeason] = useState(20);
   
   // Ref for horizontal scroll
   const navRef = useRef<HTMLDivElement>(null);
   
   // Rank Calculation Logic
-  const maxCount = itemsPerSeason * 4 * YEARS_LEN;
-
   const getRank = (count: number): OtakuRank => {
     if (count === 0) return '现充';
-
-    const ratio = count / maxCount;
-
-    if (ratio < 0.1) return '路人';
-    if (ratio < 0.25) return '动画爱好者';
-    if (ratio < 0.45) return '老二次元';
-    if (ratio < 0.65) return '萌豚';
-    if (ratio < 0.85) return '婆罗门';
+    if (count < 8) return '路人';
+    if (count < 25) return '动画爱好者';
+    if (count < 70) return '老二次元';
+    if (count < 150) return '萌豚';
+    if (count < 300) return '婆罗门';
     return '动漫之神';
   };
 
@@ -249,25 +248,33 @@ export default function App() {
   }, [animeList]);
 
   const rank = getRank(selectedIds.size);
-  const progressPercent = Math.min((selectedIds.size / 300) * 100, 100);
+  const displayedRank = quickTasteProfile?.rank || rank;
   const displayEndYear = years[0] || yearRange.end;
   const displayStartYear = years[years.length - 1] || yearRange.start;
   const minSelectableYear = DEFAULT_START_YEAR;
   const maxSelectableYear = DEFAULT_END_YEAR;
 
-  const handleAnalyze = async () => {
-    if (selectedIds.size === 0) return;
+  const handleAnalyze = async (override?: { inputs: string[]; rank: OtakuRank }) => {
+    const profile = override || quickTasteProfile;
+    if (selectedIds.size === 0 && !profile) {
+      setIsTasteQuizOpen(true);
+      return;
+    }
     setIsModalOpen(true);
-    if (!analysisData) {
+    if (!analysisData || override) {
       setIsAnalyzing(true);
       try {
         let titles: string[] = [];
-        selectedAnimeDetails.forEach(a => {
-           titles.push(`${a.title.native || a.title.romaji} (${a.seasonYear})`);
-        });
+        if (profile?.inputs?.length) {
+          titles = profile.inputs;
+        } else {
+          selectedAnimeDetails.forEach(a => {
+             titles.push(`${a.title.native || a.title.romaji} (${a.seasonYear})`);
+          });
+        }
         if (titles.length === 0 && selectedIds.size > 0) titles = ["(用户数据缓存已清除，仅基于数量分析)"];
         const sampleTitles = titles.sort(() => 0.5 - Math.random()).slice(0, 40);
-        const result = await analyzeAnimeTaste(sampleTitles, rank);
+        const result = await analyzeAnimeTaste(sampleTitles, profile?.rank || rank);
         setAnalysisData(result);
       } catch (e) {
         console.error(e);
@@ -276,6 +283,13 @@ export default function App() {
         setIsAnalyzing(false);
       }
     }
+  };
+
+  const handleTasteQuizSubmit = (profile: { inputs: string[]; rank: OtakuRank }) => {
+    setQuickTasteProfile(profile);
+    setAnalysisData(null);
+    setIsTasteQuizOpen(false);
+    handleAnalyze(profile);
   };
 
   // Drag scrolling for Nav
@@ -300,30 +314,36 @@ export default function App() {
   };
 
   return (
-    <div className="relative font-sans pb-32 selection:bg-anime-accent selection:text-white overflow-hidden min-h-screen">
+    <div className="relative min-h-screen overflow-hidden pb-32 font-sans text-slate-800 selection:bg-anime-accent selection:text-white">
       
       {/* Dynamic Background Elements */}
       <div className="fixed inset-0 pointer-events-none z-0">
-         {/* Deep gradient base */}
-         <div className="absolute inset-0 bg-gradient-to-b from-[#020205] via-[#0a0a12] to-[#12121a]"></div>
-         
-         {/* Animated Orbs */}
-         <div className="absolute top-[10%] left-[20%] w-[30vw] h-[30vw] bg-indigo-600/10 blur-[120px] rounded-full mix-blend-screen animate-float" />
-         <div className="absolute bottom-[20%] right-[10%] w-[40vw] h-[40vw] bg-pink-600/10 blur-[120px] rounded-full mix-blend-screen animate-float-delayed" />
-         
-         {/* Grid lines */}
-         <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[size:100px_100px] [mask-image:radial-gradient(ellipse_at_center,black_40%,transparent_100%)]"></div>
+         <div className="absolute inset-0 bg-gradient-to-b from-sky-50 via-[#f8fcff] to-rose-50"></div>
+         <div
+           className="absolute inset-x-0 top-0 h-[520px] bg-cover bg-center opacity-35"
+           style={{ backgroundImage: `url(${lizuHero})` }}
+         ></div>
+         <div className="absolute inset-0 bg-[linear-gradient(rgba(14,116,144,0.06)_1px,transparent_1px)] bg-[size:100%_32px] opacity-80"></div>
+         <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-white/72 to-white"></div>
       </div>
 
       {/* Header */}
-      <header className="relative pt-16 pb-10 px-6 text-center z-10">
-        <div className="absolute top-0 left-0 w-full h-full bg-gradient-to-b from-black/50 to-transparent pointer-events-none"></div>
+      <header className="relative z-10 px-6 pb-12 pt-16 text-center">
         
         {/* Top Right Controls */}
         <div className="absolute top-6 right-6 flex gap-2 z-50">
           <button 
+             onClick={() => setIsTasteQuizOpen(true)}
+             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
+             title="Taste Check"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18h6m-8 3h10M7 3h10l2 7-7 4-7-4 2-7z" />
+            </svg>
+          </button>
+          <button 
              onClick={() => setIsGameOpen(true)}
-             className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all"
+             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
              title="Mini Game"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -333,7 +353,7 @@ export default function App() {
 
           <button 
              onClick={() => setIsSettingsOpen(true)}
-             className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-all"
+             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -342,23 +362,25 @@ export default function App() {
           </button>
         </div>
 
-        <h1 className="text-4xl md:text-6xl font-black font-jp tracking-tighter text-white mb-2 relative inline-block">
-          <span className="absolute -inset-1 blur-2xl bg-indigo-500/30 rounded-full"></span>
-          <span className="relative drop-shadow-2xl">
-             ANIME <span className="text-transparent bg-clip-text bg-gradient-to-r from-anime-highlight to-anime-accent">HORIZON</span>
+        <h1 className="relative mb-2 inline-block font-jp text-4xl font-black tracking-normal text-slate-900 md:text-6xl">
+          <span className="relative drop-shadow-[0_10px_30px_rgba(14,116,144,0.16)]">
+             ANIME <span className="bg-gradient-to-r from-sky-500 via-cyan-400 to-rose-400 bg-clip-text text-transparent">HORIZON</span>
           </span>
         </h1>
         <div className="flex items-center justify-center gap-4 mt-3">
-          <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/30"></div>
-          <p className="text-xs md:text-sm text-slate-400 font-bold tracking-[0.3em] uppercase opacity-80">
+          <div className="h-px w-12 bg-gradient-to-r from-transparent to-sky-200"></div>
+          <p className="text-xs md:text-sm text-sky-700 font-bold tracking-[0.3em] uppercase opacity-80">
             Chronicles {displayEndYear} - {displayStartYear}
           </p>
-          <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/30"></div>
+          <div className="h-px w-12 bg-gradient-to-l from-transparent to-rose-200"></div>
         </div>
+        <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-slate-500 md:text-base">
+          新番导视、补番记录、偏好测评、小游戏。
+        </p>
       </header>
 
       {/* Sticky Year Navigation */}
-      <nav className="sticky top-0 z-40 bg-[#050505]/80 backdrop-blur-md border-y border-white/5">
+      <nav className="sticky top-0 z-40 border-y border-sky-100/80 bg-white/75 backdrop-blur-md">
         <div 
           ref={navRef}
           className="w-full overflow-x-auto scrollbar-hide py-3 cursor-grab active:cursor-grabbing"
@@ -375,8 +397,8 @@ export default function App() {
                 className={`
                   relative px-5 py-1.5 mx-1 rounded-full text-sm font-bold transition-all duration-300 select-none
                   ${activeYear === year 
-                    ? 'bg-white text-black shadow-[0_0_15px_rgba(255,255,255,0.5)] scale-105' 
-                    : 'text-slate-500 hover:text-white hover:bg-white/10'}
+                    ? 'bg-sky-500 text-white shadow-[0_8px_24px_rgba(14,165,233,0.24)] scale-105' 
+                    : 'text-slate-500 hover:text-sky-700 hover:bg-sky-50'}
                 `}
               >
                 {year}
@@ -398,9 +420,9 @@ export default function App() {
           <div className="animate-pulse space-y-12 mt-8 opacity-50">
             {[1, 2, 3].map(i => (
               <div key={i} className="space-y-6">
-                <div className="h-10 w-48 bg-white/5 rounded-lg"></div>
+                <div className="h-10 w-48 bg-sky-100 rounded-lg"></div>
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
-                  {[1, 2, 3, 4, 5].map(j => <div key={j} className="aspect-[2/3] bg-white/5 rounded-xl"></div>)}
+                  {[1, 2, 3, 4, 5].map(j => <div key={j} className="aspect-[2/3] bg-sky-100 rounded-xl"></div>)}
                 </div>
               </div>
             ))}
@@ -413,12 +435,12 @@ export default function App() {
             return (
               <div key={season} className="mb-20 animate-fade-in">
                  {/* Season Header */}
-                <div className="flex items-end gap-4 mb-8 px-2 border-b border-white/5 pb-4">
-                  <h2 className="text-4xl font-black font-jp text-white/90 drop-shadow-md">
+                <div className="flex items-end gap-4 mb-8 px-2 border-b border-sky-100 pb-4">
+                  <h2 className="text-4xl font-black font-jp text-slate-800 drop-shadow-sm">
                     {SEASON_CN[season].split(' ')[0]}
-                    <span className="text-lg font-sans font-normal text-white/40 ml-2">{SEASON_CN[season].split(' ')[1]}</span>
+                    <span className="text-lg font-sans font-normal text-slate-400 ml-2">{SEASON_CN[season].split(' ')[1]}</span>
                   </h2>
-                  <span className="text-6xl font-black text-white/5 absolute right-0 -translate-y-4 pointer-events-none select-none font-sans">
+                  <span className="text-6xl font-black text-sky-100 absolute right-0 -translate-y-4 pointer-events-none select-none font-sans">
                     {season}
                   </span>
                 </div>
@@ -439,9 +461,9 @@ export default function App() {
         )}
 
         {!isLoading && animeList.length === 0 && (
-           <div className="flex flex-col items-center justify-center py-40 text-center opacity-40">
+          <div className="flex flex-col items-center justify-center py-40 text-center opacity-60">
              <div className="text-6xl mb-4 grayscale">🗻</div>
-             <p className="font-mono text-sm">NO DATA FOUND FOR {activeYear}</p>
+             <p className="font-mono text-sm text-slate-500">NO DATA FOUND FOR {activeYear}</p>
              {activeYear > CURRENT_REAL_YEAR && (
                  <p className="text-xs text-anime-highlight mt-2">（未来番剧可能尚未公布或数据库未更新）</p>
              )}
@@ -451,28 +473,38 @@ export default function App() {
 
       {/* Dock Bar */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl z-50">
-        <div className="glass-panel p-2 pl-6 pr-2 rounded-2xl flex items-center justify-between shadow-[0_20px_60px_rgba(0,0,0,0.6)] ring-1 ring-white/10 group hover:ring-white/20 transition-all">
+        <div className="glass-panel flex items-center justify-between rounded-2xl p-2 pl-6 pr-2 shadow-[0_20px_60px_rgba(14,116,144,0.18)] ring-1 ring-sky-100 transition-all group hover:ring-sky-200">
           
           {/* Stats */}
           <div className="flex items-center gap-5">
              <div className="flex flex-col">
-               <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Rank</span>
-               <span className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-anime-highlight to-white">
-                 {rank}
+               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Rank</span>
+               <span className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-500 to-rose-400">
+                 {displayedRank}
                </span>
              </div>
-             <div className="w-px h-8 bg-white/10"></div>
+             <div className="w-px h-8 bg-sky-100"></div>
              <div className="flex flex-col">
-               <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Watched</span>
-               <span className="text-lg font-bold text-white font-mono">{selectedIds.size}</span>
+               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Watched</span>
+               <span className="text-lg font-bold text-slate-800 font-mono">{selectedIds.size}</span>
              </div>
           </div>
 
           {/* Actions */}
           <div className="flex gap-2">
              <button
+              onClick={() => setIsTasteQuizOpen(true)}
+              className="p-3 rounded-xl hover:bg-sky-50 text-sky-500 transition-colors"
+              title="Taste Check"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18h6m-8 3h10M7 3h10l2 7-7 4-7-4 2-7z" />
+              </svg>
+            </button>
+
+             <button
               onClick={() => setIsSqlModalOpen(true)}
-              className="p-3 rounded-xl hover:bg-white/10 text-blue-300 transition-colors"
+              className="p-3 rounded-xl hover:bg-sky-50 text-blue-500 transition-colors"
               title="Export SQL"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -481,13 +513,15 @@ export default function App() {
             </button>
 
             <button
-              onClick={handleAnalyze}
-              disabled={selectedIds.size === 0}
+              onClick={() => handleAnalyze()}
+              disabled={selectedIds.size === 0 && !quickTasteProfile}
               className={`
                 px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all duration-300
                 ${selectedIds.size > 0 
-                  ? 'bg-gradient-to-r from-anime-primary to-anime-accent text-white hover:scale-105 hover:shadow-anime-accent/50' 
-                  : 'bg-white/5 text-gray-600 cursor-not-allowed'}
+                  ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200' 
+                  : quickTasteProfile
+                    ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200'
+                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'}
               `}
             >
               {analysisData ? '查看报告' : '生成报告'}
@@ -514,6 +548,12 @@ export default function App() {
       <GameModal
         isOpen={isGameOpen}
         onClose={() => setIsGameOpen(false)}
+      />
+
+      <TasteQuizModal
+        isOpen={isTasteQuizOpen}
+        onClose={() => setIsTasteQuizOpen(false)}
+        onSubmit={handleTasteQuizSubmit}
       />
 
       <SettingsModal

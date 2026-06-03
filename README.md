@@ -16,12 +16,27 @@
     ```
 
 2.  **配置环境变量**
-    复制 `.env.local.example`（如果有）或新建 `.env.local` 文件，并填入你的 Gemini API Key 和 Aliyun API Key：
+    复制 `.env.local.example` 为 `.env.local`。本地如果只跑 `npm run dev`，可以填 `VITE_DEEPSEEK_API_KEY` 做浏览器端调试；正式发布推荐只在服务端配置 `DEEPSEEK_API_KEY`：
 
     ```env
-    GEMINI_API_KEY=your_api_key_here
-    ALIYUN_API_KEY=your_aliyun_api_key_here
+    VITE_DEEPSEEK_API_KEY=your_deepseek_api_key_here
+    VITE_GEMINI_API_KEY=your_gemini_api_key_here
+    VITE_ALIYUN_API_KEY=your_aliyun_api_key_here
     ```
+
+    可选：如果想优先使用阿里云 DashScope 兼容接口，可以加：
+
+    ```env
+    VITE_USE_ALIYUN_FIRST=true
+    ```
+
+    部署到 Render Web Service 时，在 Environment 中配置：
+
+    ```env
+    DEEPSEEK_API_KEY=your_deepseek_api_key_here
+    ```
+
+    `server.mjs` 会在服务端读取这个 key，并通过 `/api/deepseek/chat` 代理 AI 请求，避免把 key 打进浏览器包。
 
 3.  **准备数据（推荐）**
     首次运行建议先拉取本地数据，以便使用本地模式或离线预览：
@@ -53,6 +68,29 @@
 | **本地模式 (Local)** | `npm run dev:local` | **`public/data/`** (本地 JSON/图片) | 离线开发、UI 调试、避免触发 API 频率限制。需先运行同步脚本。 |
 
 > **提示**：在运行本地模式前，请确保已执行数据同步脚本生成了 JSON 和图片文件。
+
+-----
+
+## 🌐 Render 部署
+
+如果你已经把 GitHub 仓库绑定到 Render，推荐用 **Web Service**，不要用 Static Site。这样 `DEEPSEEK_API_KEY` 留在服务端，不会暴露到浏览器。
+
+| 项目 | 值 |
+| :--- | :--- |
+| Service Type | `Web Service` |
+| Build Command | `npm install && npm run build` |
+| Start Command | `npm run start` |
+| Environment | `DEEPSEEK_API_KEY=你的 DeepSeek Key` |
+
+仓库里已经提供 `render.yaml`。如果 Render 检测到 Blueprint，可以直接用它创建服务；否则手动按上表配置即可。改了 `DEEPSEEK_API_KEY` 后，选择 `Save, rebuild, and deploy` 或手动触发一次新部署。
+
+-----
+
+## 🎺 主题与测评
+
+当前界面使用 `pics/LizuToAoiTori_sora.png` 作为主视觉背景，整体往《利兹与青鸟》与京吹系的浅蓝、空气感、乐谱线条方向靠。首页保留新番导视式年份与季度浏览，同时增加了“快速二次元浓度测评”入口。
+
+测评不再只依赖“点过多少番”。你可以通过少量代表作 + 偏好问卷生成画像，再交给 AI 做成分分析、避雷和补番推荐。这样既能继续保留完整番表勾选，也可以避免为了出报告硬点很多作品。
 
 -----
 

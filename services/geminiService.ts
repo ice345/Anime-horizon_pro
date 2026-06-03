@@ -1,12 +1,19 @@
 import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
+const DEEPSEEK_MODEL = 'deepseek-chat';
+const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
 // 默认优先使用用户配置（当前 deepseek-v3.2），回退到通义千问系列较稳的档位
 const ALIYUN_MODEL = 'deepseek-v3.2';
 const ALIYUN_FALLBACK_MODELS = ['qwen-turbo','qwen-plus', 'qwen-flash', 'qwen3-max', 'qwen-max'];
 const ALIYUN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 const TIMEOUT_MS = 12000;
-const PREFER_ALIYUN = process.env.ALIYUN_ONLY === 'true' || process.env.USE_ALIYUN_FIRST === 'true';
+const env = import.meta.env;
+const GEMINI_API_KEY = env.VITE_GEMINI_API_KEY || env.VITE_API_KEY || env.GEMINI_API_KEY || env.API_KEY;
+const DEEPSEEK_API_KEY = env.VITE_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY;
+const ALIYUN_API_KEY = env.VITE_ALIYUN_API_KEY || env.ALIYUN_API_KEY;
+const PREFER_DEEPSEEK = env.VITE_USE_DEEPSEEK_FIRST !== 'false';
+const PREFER_ALIYUN = env.VITE_ALIYUN_ONLY === 'true' || env.VITE_USE_ALIYUN_FIRST === 'true';
 
 // Simple in-memory recency buckets to reduce repetition
 const recentEmojiTitles: string[] = [];
@@ -20,13 +27,13 @@ const rememberRecent = (bucket: string[], value: string, max = 6) => {
 let client: GoogleGenAI | null = null;
 
 const getClient = () => {
-  if (!client && process.env.API_KEY) {
-    client = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  if (!client && GEMINI_API_KEY) {
+    client = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   }
   return client;
 };
 
-const getAliyunKey = () => process.env.ALIYUN_API_KEY;
+const getAliyunKey = () => ALIYUN_API_KEY;
 
 const runWithTimeout = async <T>(promise: Promise<T>, timeoutMs = TIMEOUT_MS) => {
   return Promise.race([
@@ -238,6 +245,70 @@ const callGemini = async (prompt: string) => {
   return ensureShape(parseJsonSafe(response.text));
 };
 
+const callDeepSeekRaw = async (prompt: string) => {
+  const callServerProxy = async () => {
+    const res = await fetch('/api/deepseek/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, model: DEEPSEEK_MODEL })
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`DeepSeek proxy error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('DeepSeek proxy response empty');
+    }
+    return parseJsonSafe(content);
+  };
+
+  try {
+    return await callServerProxy();
+  } catch (proxyError) {
+    if (!DEEPSEEK_API_KEY) {
+      throw proxyError;
+    }
+    console.warn('DeepSeek proxy unavailable, using browser key fallback:', proxyError);
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  const res = await fetch(DEEPSEEK_BASE_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${DEEPSEEK_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: DEEPSEEK_MODEL,
+      messages: [{ role: 'user', content: prompt }],
+      response_format: { type: 'json_object' }
+    }),
+    signal: controller.signal
+  });
+
+  clearTimeout(timer);
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`DeepSeek API Error ${res.status}: ${text}`);
+  }
+
+  const data = await res.json();
+  const content = data?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error('DeepSeek response empty');
+  }
+  return parseJsonSafe(content);
+};
+
+const callDeepSeek = async (prompt: string) => ensureShape(await callDeepSeekRaw(prompt));
+
 const callAliyunOnce = async (prompt: string, model: string) => {
   const apiKey = getAliyunKey();
   if (!apiKey) {
@@ -359,8 +430,17 @@ const normalizeResult = (data: any) => {
 export const analyzeAnimeTaste = async (animeTitles: string[], rank: string) => {
   const prompt = buildPrompt(animeTitles, rank);
 
+  const tryDeepSeek = async () => normalizeResult(await callDeepSeek(prompt));
   const tryGemini = async () => normalizeResult(await callGemini(prompt));
   const tryAliyun = async () => normalizeResult(await callAliyun(prompt));
+
+  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
+    try {
+      return await tryDeepSeek();
+    } catch (e) {
+      console.warn('DeepSeek preferred path failed, trying Gemini/Aliyun:', e);
+    }
+  }
 
   if (PREFER_ALIYUN) {
     try {
@@ -374,7 +454,12 @@ export const analyzeAnimeTaste = async (animeTitles: string[], rank: string) => 
   try {
     return await tryGemini();
   } catch (error) {
-    console.warn('Gemini failed, falling back to Aliyun:', error);
+    console.warn('Gemini failed, falling back to DeepSeek/Aliyun:', error);
+    try {
+      return await tryDeepSeek();
+    } catch (deepseekError) {
+      console.warn('DeepSeek fallback failed, trying Aliyun:', deepseekError);
+    }
     return await tryAliyun();
   }
 };
@@ -423,27 +508,45 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
     return parseJsonSafe(response.text);
   };
 
+  const tryDeepSeek = async () => callDeepSeekRaw(prompt);
   const canAliyun = Boolean(getAliyunKey());
 
-  if (PREFER_ALIYUN || !process.env.API_KEY) {
+  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
+    try {
+      return await tryDeepSeek();
+    } catch (e) {
+      console.warn('DeepSeek game start failed, trying Gemini/Aliyun:', e);
+    }
+  }
+
+  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
     try {
       return await callAliyunRaw(prompt);
     } catch (e) {
       console.warn('Aliyun game start failed, trying Gemini:', e);
-      return await tryGemini();
+      try {
+        return await tryDeepSeek();
+      } catch {
+        return await tryGemini();
+      }
     }
   }
 
   if (canAliyun) {
     try {
       // Race both providers; take the fastest success to reduce wait
-      return await Promise.any([tryGemini(), callAliyunRaw(prompt)]);
+      const providers = [tryGemini(), tryDeepSeek(), callAliyunRaw(prompt)];
+      return await Promise.any(providers);
     } catch (e) {
       console.warn('Race failed, fallback Gemini->Aliyun', e);
       try {
         return await tryGemini();
       } catch {
-        return await callAliyunRaw(prompt);
+        try {
+          return await tryDeepSeek();
+        } catch {
+          return await callAliyunRaw(prompt);
+        }
       }
     }
   }
@@ -451,7 +554,12 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
   try {
     return await tryGemini();
   } catch (e) {
-    console.warn('Gemini game start failed, trying Aliyun:', e);
+    console.warn('Gemini game start failed, trying DeepSeek/Aliyun:', e);
+    try {
+      return await tryDeepSeek();
+    } catch (deepseekError) {
+      console.warn('DeepSeek game start failed, trying Aliyun:', deepseekError);
+    }
     return await callAliyunRaw(prompt);
   }
 };
@@ -488,27 +596,45 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
   };
 
   const tryAliyun = async (currentSeed: number) => callAliyunRaw(buildPrompt(currentSeed));
+  const tryDeepSeek = async (currentSeed: number) => callDeepSeekRaw(buildPrompt(currentSeed));
   const canAliyun = Boolean(getAliyunKey());
 
   const runOnce = async (currentSeed: number) => {
-    if (PREFER_ALIYUN || !process.env.API_KEY) {
+    if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
+      try {
+        return await tryDeepSeek(currentSeed);
+      } catch (e) {
+        console.warn('DeepSeek emoji game failed, trying Gemini/Aliyun:', e);
+      }
+    }
+
+    if (PREFER_ALIYUN || !GEMINI_API_KEY) {
       try {
         return await tryAliyun(currentSeed);
       } catch (e) {
-        console.warn('Aliyun emoji game failed, trying Gemini:', e);
-        return await tryGemini(currentSeed);
+        console.warn('Aliyun emoji game failed, trying DeepSeek/Gemini:', e);
+        try {
+          return await tryDeepSeek(currentSeed);
+        } catch {
+          return await tryGemini(currentSeed);
+        }
       }
     }
 
     if (canAliyun) {
       try {
-        return await Promise.any([tryGemini(currentSeed), tryAliyun(currentSeed)]);
+        const providers = [tryGemini(currentSeed), tryDeepSeek(currentSeed), tryAliyun(currentSeed)];
+        return await Promise.any(providers);
       } catch (e) {
         console.warn('Emoji race failed, fallback Gemini->Aliyun', e);
         try {
           return await tryGemini(currentSeed);
         } catch {
-          return await tryAliyun(currentSeed);
+          try {
+            return await tryDeepSeek(currentSeed);
+          } catch {
+            return await tryAliyun(currentSeed);
+          }
         }
       }
     }
@@ -516,7 +642,12 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
     try {
       return await tryGemini(currentSeed);
     } catch (e) {
-      console.warn('Gemini emoji game failed, trying Aliyun:', e);
+      console.warn('Gemini emoji game failed, trying DeepSeek/Aliyun:', e);
+      try {
+        return await tryDeepSeek(currentSeed);
+      } catch (deepseekError) {
+        console.warn('DeepSeek emoji game failed, trying Aliyun:', deepseekError);
+      }
       return await tryAliyun(currentSeed);
     }
   };
@@ -560,15 +691,29 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
     return parseJsonSafe(response.text);
   };
 
-  if (PREFER_ALIYUN || !process.env.API_KEY) {
+  const tryDeepSeek = async () => callDeepSeekRaw(prompt);
+
+  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
+    try {
+      return await tryDeepSeek();
+    } catch (e) {
+      console.warn('DeepSeek oracle failed, trying Gemini/Aliyun:', e);
+    }
+  }
+
+  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
     try {
       return await callAliyunRaw(prompt);
     } catch (e) {
-      console.warn('Aliyun oracle failed, trying Gemini:', e);
+      console.warn('Aliyun oracle failed, trying DeepSeek/Gemini:', e);
       try {
-        return await tryGemini();
+        return await tryDeepSeek();
       } catch {
-        return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
+        try {
+          return await tryGemini();
+        } catch {
+          return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
+        }
       }
     }
   }
@@ -576,11 +721,15 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
   try {
     return await tryGemini();
   } catch (error) {
-    console.warn('Gemini oracle failed, trying Aliyun:', error);
+    console.warn('Gemini oracle failed, trying DeepSeek/Aliyun:', error);
     try {
-      return await callAliyunRaw(prompt);
+      return await tryDeepSeek();
     } catch {
-      return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
+      try {
+        return await callAliyunRaw(prompt);
+      } catch {
+        return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
+      }
     }
   }
 };
@@ -610,16 +759,33 @@ export const checkGameWin = async (secret: GameCharacter | EmojiGameChallenge, u
     return res.correct === true;
   };
 
-  if (PREFER_ALIYUN || !process.env.API_KEY) {
+  const tryDeepSeek = async () => {
+    const res = await callDeepSeekRaw(prompt);
+    return res.correct === true;
+  };
+
+  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
+    try {
+      return await tryDeepSeek();
+    } catch (e) {
+      console.warn('DeepSeek checkWin failed, trying Gemini/Aliyun:', e);
+    }
+  }
+
+  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
     try {
       const res = await callAliyunRaw(prompt);
       return res.correct === true;
     } catch (e) {
-      console.warn('Aliyun checkWin failed, trying Gemini:', e);
+      console.warn('Aliyun checkWin failed, trying DeepSeek/Gemini:', e);
       try {
-        return await tryGemini();
+        return await tryDeepSeek();
       } catch {
-        return false;
+        try {
+          return await tryGemini();
+        } catch {
+          return false;
+        }
       }
     }
   }
@@ -627,12 +793,16 @@ export const checkGameWin = async (secret: GameCharacter | EmojiGameChallenge, u
   try {
     return await tryGemini();
   } catch (error) {
-    console.warn('Gemini checkWin failed, trying Aliyun:', error);
+    console.warn('Gemini checkWin failed, trying DeepSeek/Aliyun:', error);
     try {
+      return await tryDeepSeek();
+    } catch {
+      try {
       const res = await callAliyunRaw(prompt);
       return res.correct === true;
-    } catch {
-      return false;
+      } catch {
+        return false;
+      }
     }
   }
 };

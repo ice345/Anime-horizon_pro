@@ -8,11 +8,11 @@ export default defineConfig(({ mode }) => {
 
     // 2. 读取系统环境变量 (部署到 Render 时用到)
     // 逻辑：优先读取系统环境变量(process.env)，如果读不到，再去读 .env 文件(env)
-    // 在 Render 上，process.env.GEMINI_API_KEY 会有值。
-    // 在本地，env.GEMINI_API_KEY 会有值。
-    const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY;
+    // 在 Render 上，process.env.* 会有值；本地则读取 .env.local。
+    const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY;
+    const deepseekBrowserKey = env.VITE_DEEPSEEK_API_KEY;
     // 阿里云通义千问：本地 .env 优先，其次系统环境变量
-    const aliyunKey = env.ALIYUN_API_KEY || process.env.ALIYUN_API_KEY;
+    const aliyunKey = env.ALIYUN_API_KEY || process.env.ALIYUN_API_KEY || env.VITE_ALIYUN_API_KEY;
 
     return {
       server: {
@@ -23,12 +23,14 @@ export default defineConfig(({ mode }) => {
       plugins: [react()],
       define: {
         // 3. 把取到的值注入到代码中
-        'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
-        
-        // 如果你的代码里还用了 process.env.API_KEY，也顺便注入一下
-        'process.env.API_KEY': JSON.stringify(geminiKey),
+        'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(geminiKey),
+        'import.meta.env.VITE_API_KEY': JSON.stringify(geminiKey),
+        'import.meta.env.VITE_DEEPSEEK_API_KEY': JSON.stringify(deepseekBrowserKey),
+        'import.meta.env.VITE_ALIYUN_API_KEY': JSON.stringify(aliyunKey),
 
-        // Aliyun (DashScope 兼容模式)
+        // 兼容旧代码和部分部署环境
+        'process.env.GEMINI_API_KEY': JSON.stringify(geminiKey),
+        'process.env.API_KEY': JSON.stringify(geminiKey),
         'process.env.ALIYUN_API_KEY': JSON.stringify(aliyunKey)
       },
       resolve: {

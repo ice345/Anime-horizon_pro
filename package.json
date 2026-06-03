@@ -10,7 +10,8 @@
     "data:sync": "node ./scripts/dataSync.mjs",
     "data:sync:schedule": "node ./scripts/dataSync.mjs --schedule",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node server.mjs"
   },
   "dependencies": {
     "react": "^19.2.1",
