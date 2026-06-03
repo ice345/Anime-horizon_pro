@@ -83,11 +83,11 @@ export const TasteQuizModal: React.FC<TasteQuizModalProps> = ({ isOpen, onClose,
 
   return (
     <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-sky-950/45 backdrop-blur-xl animate-fade-in">
-      <div className="w-full max-w-3xl max-h-[92vh] overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/90 text-slate-800 shadow-[0_30px_90px_rgba(52,144,190,0.28)]">
-        <div className="flex items-start justify-between gap-4 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-rose-50 px-6 py-5">
+      <div className="flex w-full max-w-3xl max-h-[92vh] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/90 text-slate-800 shadow-[0_30px_90px_rgba(52,144,190,0.28)]">
+        <div className="shrink-0 flex items-start justify-between gap-4 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-rose-50 px-6 py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-500">Taste Check</p>
-            <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">快速二次元浓度测评</h2>
+            <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">填写偏好画像</h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
               代表作、情绪偏好、制作口味。
             </p>
@@ -99,7 +99,7 @@ export const TasteQuizModal: React.FC<TasteQuizModalProps> = ({ isOpen, onClose,
           </button>
         </div>
 
-        <div className="custom-scrollbar max-h-[calc(92vh-166px)] overflow-y-auto px-6 py-6">
+        <div className="custom-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-6 py-6">
           <div className="grid gap-5 md:grid-cols-2">
             {QUESTION_GROUPS.map((group) => (
               <section key={group.id} className="rounded-2xl border border-sky-100 bg-white/75 p-4 shadow-sm">
@@ -137,7 +137,7 @@ export const TasteQuizModal: React.FC<TasteQuizModalProps> = ({ isOpen, onClose,
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-sky-100 bg-white/80 px-6 py-4 sm:flex-row sm:justify-end">
+        <div className="shrink-0 flex flex-col gap-3 border-t border-sky-100 bg-white/80 px-6 py-4 sm:flex-row sm:justify-end">
           <button onClick={onClose} className="rounded-xl border border-slate-200 px-5 py-3 text-sm font-bold text-slate-500 transition hover:bg-slate-50">
             先不测
           </button>

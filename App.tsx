@@ -335,7 +335,7 @@ export default function App() {
           <button 
              onClick={() => setIsTasteQuizOpen(true)}
              className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
-             title="Taste Check"
+             title="填写偏好画像"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18h6m-8 3h10M7 3h10l2 7-7 4-7-4 2-7z" />
@@ -493,16 +493,6 @@ export default function App() {
           {/* Actions */}
           <div className="flex gap-2">
              <button
-              onClick={() => setIsTasteQuizOpen(true)}
-              className="p-3 rounded-xl hover:bg-sky-50 text-sky-500 transition-colors"
-              title="Taste Check"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18h6m-8 3h10M7 3h10l2 7-7 4-7-4 2-7z" />
-              </svg>
-            </button>
-
-             <button
               onClick={() => setIsSqlModalOpen(true)}
               className="p-3 rounded-xl hover:bg-sky-50 text-blue-500 transition-colors"
               title="Export SQL"
@@ -514,17 +504,16 @@ export default function App() {
 
             <button
               onClick={() => handleAnalyze()}
-              disabled={selectedIds.size === 0 && !quickTasteProfile}
               className={`
                 px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all duration-300
                 ${selectedIds.size > 0 
                   ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200' 
                   : quickTasteProfile
                     ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200'
-                    : 'bg-slate-100 text-slate-400 cursor-not-allowed'}
+                    : 'bg-white text-sky-600 border border-sky-100 hover:bg-sky-50'}
               `}
             >
-              {analysisData ? '查看报告' : '生成报告'}
+              {analysisData ? '查看报告' : selectedIds.size > 0 || quickTasteProfile ? '生成报告' : '填写画像'}
             </button>
           </div>
         </div>
