@@ -1,5 +1,5 @@
 import React from 'react';
-import { Anime } from '../types';
+import { Anime, SEASON_CN } from '../types';
 
 interface AnimeCardProps {
   anime: Anime;
@@ -59,7 +59,13 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle,
           <span className="truncate">{anime.genres.slice(0, 2).join(' · ') || anime.format || '动画'}</span>
           {anime.averageScore && <span className="shrink-0 font-medium text-yearbook-sky">{anime.averageScore}%</span>}
         </div>
-        {isList && <p className="mt-2 line-clamp-2 text-xs leading-5 text-yearbook-muted">{anime.studios?.[0] || anime.description?.replace(/<[^>]+>/g, '') || '将这部作品收进你的年鉴。'}</p>}
+        {isList && (
+          <div className="mt-2 space-y-1.5 text-xs leading-5 text-yearbook-muted">
+            <p>{anime.seasonYear || '年份未知'} · {anime.season ? SEASON_CN[anime.season].split(' ')[0] : '季度未知'} · {anime.format || '动画'}{anime.episodes ? ` · ${anime.episodes} 集` : ''}{anime.duration ? ` · ${anime.duration} 分钟` : ''}</p>
+            {anime.studios?.length ? <p>制作：{anime.studios.slice(0, 2).join(' / ')}</p> : null}
+            <p className="line-clamp-2">{anime.description?.replace(/<[^>]+>/g, '') || '将这部作品收进你的年鉴，留下自己的观看记录。'}</p>
+          </div>
+        )}
       </div>
     </button>
   );

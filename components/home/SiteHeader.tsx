@@ -64,7 +64,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
         </nav>
 
         <div className="relative flex items-center gap-1">
-          <button type="button" onClick={onSearch} aria-label="搜索本季动画" className="ah-focus-ring grid h-10 w-10 place-items-center rounded-full text-yearbook-muted transition hover:bg-yearbook-blue hover:text-yearbook-sky">
+          <button type="button" onClick={onSearch} aria-label="搜索并收录任意动画" className="ah-focus-ring grid h-10 w-10 place-items-center rounded-full text-yearbook-muted transition hover:bg-yearbook-blue hover:text-yearbook-sky">
             <SearchIcon />
           </button>
           <button type="button" onClick={() => setMenuOpen((value) => !value)} aria-expanded={menuOpen} aria-label="打开工具菜单" className="hidden min-h-10 rounded-full border border-yearbook-line bg-yearbook-surface px-4 text-sm font-medium text-yearbook-ink transition hover:border-sky-200 hover:bg-yearbook-blue sm:block">

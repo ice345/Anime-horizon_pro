@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { GuidePage } from './components/GuidePage';
-import { SeasonSection } from './components/SeasonSection';
+import { ArchivePage } from './components/home/ArchivePage';
 import { DecorativeBackground } from './components/home/DecorativeBackground';
 import { SiteHeader } from './components/home/SiteHeader';
 import { YearNavigation } from './components/home/YearNavigation';
@@ -13,6 +13,7 @@ const SqlExportModal = lazy(() => import('./components/SqlExportModal').then(({ 
 const GameModal = lazy(() => import('./components/GameModal').then(({ GameModal: Component }) => ({ default: Component })));
 const TasteQuizModal = lazy(() => import('./components/TasteQuizModal').then(({ TasteQuizModal: Component }) => ({ default: Component })));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(({ SettingsModal: Component }) => ({ default: Component })));
+const GlobalAnimeSearchModal = lazy(() => import('./components/home/GlobalAnimeSearchModal').then(({ GlobalAnimeSearchModal: Component }) => ({ default: Component })));
 
 const CURRENT_REAL_YEAR = new Date().getFullYear();
 const MAX_LOOKAHEAD = 1;
@@ -74,6 +75,7 @@ export default function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGameOpen, setIsGameOpen] = useState(false);
   const [isTasteQuizOpen, setIsTasteQuizOpen] = useState(false);
+  const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
   const [quickTasteProfile, setQuickTasteProfile] = useState<{ inputs: string[]; rank: OtakuRank } | null>(null);
@@ -216,12 +218,6 @@ export default function App() {
     setSelectedAnimeDetails(nextDetails);
   };
 
-  const seasonalAnime = useMemo(() => {
-    const grouped: Record<Season, Anime[]> = { WINTER: [], SPRING: [], SUMMER: [], FALL: [] };
-    animeList.forEach((anime) => grouped[anime.season]?.push(anime));
-    return grouped;
-  }, [animeList]);
-
   const rank = getRank(selectedIds.size);
   const displayedRank = quickTasteProfile?.rank || rank;
 
@@ -262,11 +258,6 @@ export default function App() {
     window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }), 40);
   };
 
-  const focusSearch = () => {
-    scrollToGuideSection('catalogue');
-    window.setTimeout(() => document.getElementById('anime-search')?.focus(), 180);
-  };
-
   return (
     <div className="ah-shell relative overflow-hidden font-sans text-yearbook-ink">
       <DecorativeBackground />
@@ -274,7 +265,7 @@ export default function App() {
         activeView={route}
         onNavigate={navigate}
         onShowFeatured={() => scrollToGuideSection('featured')}
-        onSearch={focusSearch}
+        onSearch={() => setIsGlobalSearchOpen(true)}
         onOpenTaste={() => setIsTasteQuizOpen(true)}
         onOpenGame={() => setIsGameOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
@@ -295,22 +286,7 @@ export default function App() {
           onOpenGame={() => setIsGameOpen(true)}
           onOpenTaste={() => setIsTasteQuizOpen(true)}
         />
-      ) : (
-        <main className="relative z-10 mx-auto max-w-[var(--ah-page-width)] px-5 pb-16 pt-10 md:px-8">
-          <section className="mb-12 border-b border-yearbook-line pb-6 sm:flex sm:items-end sm:justify-between">
-            <div>
-              <p className="ah-section-label">My Archive / {activeYear}</p>
-              <h1 className="mt-3 font-jp text-4xl font-medium text-yearbook-ink">我的动画年鉴</h1>
-              <p className="mt-3 text-sm leading-6 text-yearbook-muted">按季度回看，也可以继续把刚遇见的作品收入这一年。</p>
-            </div>
-            <button type="button" onClick={() => navigate('guide')} className="mt-5 text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink sm:mt-0">返回本季导视</button>
-          </section>
-          {SEASONS.map((season) => {
-            const key = `${activeYear}-${season}-${itemsPerSeason}`;
-            return <SeasonSection key={season} season={season} anime={seasonalAnime[season]} loading={loadingSeasons.has(key)} loaded={loadedSeasons.has(key)} selectedIds={selectedIds} onToggle={toggleAnime} onVisible={(visibleSeason) => void loadSeason(activeYear, visibleSeason, itemsPerSeason)} />;
-          })}
-        </main>
-      )}
+      ) : <ArchivePage anime={Array.from(selectedAnimeDetails.values())} onToggle={(anime) => toggleAnime(String(anime.id), anime)} onBrowse={() => navigate('guide')} />}
 
       <Suspense fallback={null}>
         {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} />}
@@ -334,6 +310,7 @@ export default function App() {
             onClearSelection={handleClearSelection}
           />
         )}
+        {isGlobalSearchOpen && <GlobalAnimeSearchModal isOpen={isGlobalSearchOpen} onClose={() => setIsGlobalSearchOpen(false)} selectedIds={selectedIds} onToggle={(anime) => toggleAnime(String(anime.id), anime)} minYear={DEFAULT_START_YEAR} maxYear={DEFAULT_END_YEAR} />}
       </Suspense>
     </div>
   );

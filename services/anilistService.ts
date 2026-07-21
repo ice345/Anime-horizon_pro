@@ -70,9 +70,42 @@ query ($year: Int, $season: MediaSeason, $page: Int, $perPage: Int) {
 }
 `;
 
+const SEARCH_QUERY = `
+query ($search: String!, $year: Int, $page: Int, $perPage: Int) {
+  Page(page: $page, perPage: $perPage) {
+    media(
+      search: $search
+      seasonYear: $year
+      type: ANIME
+      countryOfOrigin: JP
+      isAdult: false
+      sort: [SEARCH_MATCH, POPULARITY_DESC]
+      format_in: [TV,TV_SHORT,MOVIE,OVA,ONA]
+    ) {
+      id
+      title { romaji english native }
+      coverImage { extraLarge large color }
+      bannerImage
+      description(asHtml: false)
+      format
+      season
+      seasonYear
+      genres
+      averageScore
+      popularity
+      status
+      episodes
+      duration
+      studios(isMain: true) { nodes { name } }
+      nextAiringEpisode { airingAt timeUntilAiring episode }
+    }
+  }
+}
+`;
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-async function fetchWithRetry(variables: any, retries = 0): Promise<any> {
+async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promise<any> {
   try {
     const response = await fetch(API_URL, {
       method: 'POST',
@@ -81,7 +114,7 @@ async function fetchWithRetry(variables: any, retries = 0): Promise<any> {
         'Accept': 'application/json',
       },
       body: JSON.stringify({
-        query: QUERY,
+        query,
         variables
       })
     });
@@ -91,7 +124,7 @@ async function fetchWithRetry(variables: any, retries = 0): Promise<any> {
       const retryAfter = parseInt(response.headers.get('Retry-After') || '60', 10);
       console.warn(`429 Detected. Cooling down for ${retryAfter || 60}s...`);
       await delay(Math.max(retryAfter * 1000, CONFIG.RETRY_DELAY));
-      return fetchWithRetry(variables, retries + 1);
+      return fetchWithRetry(variables, retries + 1, query);
     }
 
     if (!response.ok) {
@@ -105,7 +138,7 @@ async function fetchWithRetry(variables: any, retries = 0): Promise<any> {
     if (retries < CONFIG.MAX_RETRIES) {
       console.warn(`Fetch failed, retrying (${retries + 1}/${CONFIG.MAX_RETRIES})...`);
       await delay(2000); // Short delay for network errors
-      return fetchWithRetry(variables, retries + 1);
+      return fetchWithRetry(variables, retries + 1, query);
     }
     throw error;
   }
@@ -157,6 +190,35 @@ export const fetchAnimeByYear = async (year: number, perSeason: number = 20): Pr
   const seasons: Season[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
   const results = await Promise.all(seasons.map((season) => fetchAnimeBySeason(year, season, perSeason)));
   return results.flat();
+};
+
+export const searchAnime = async (search: string, year?: number, perPage: number = 16): Promise<Anime[]> => {
+  const normalizedSearch = search.trim();
+  if (!normalizedSearch) return [];
+
+  const cacheKey = `search:${DATA_MODE}:${normalizedSearch.toLocaleLowerCase()}:${year || 'all'}:${perPage}`;
+  if (animeCache[cacheKey]) return animeCache[cacheKey];
+
+  if (DATA_MODE === 'local' && year) {
+    try {
+      const local = await fetch(`${LOCAL_DATA_BASE}/anime-${year}.json`);
+      if (local.ok) {
+        const entries = (await local.json() as Anime[])
+          .filter((item) => [item.title.native, item.title.romaji, item.title.english].filter(Boolean).join(' ').toLocaleLowerCase().includes(normalizedSearch.toLocaleLowerCase()))
+          .slice(0, perPage)
+          .map(normalizeAnime);
+        animeCache[cacheKey] = entries;
+        return entries;
+      }
+    } catch {
+      // Fall through to AniList when the optional local year's dataset is absent.
+    }
+  }
+
+  const data = await fetchWithRetry({ search: normalizedSearch, year: year || null, page: 1, perPage }, 0, SEARCH_QUERY);
+  const entries = (data?.Page?.media || []).map(normalizeAnime);
+  animeCache[cacheKey] = entries;
+  return entries;
 };
 
 // Allow clearing cache for config changes

@@ -16,7 +16,10 @@ interface FilterBarProps {
 
 const preferredGenres = ['Fantasy', 'Drama', 'Sci-Fi', 'Slice of Life', 'Adventure', 'Mystery'];
 const labels: Record<string, string> = {
-  ALL: '全部类型', Fantasy: '奇幻', Drama: '剧情', 'Sci-Fi': '科幻', 'Slice of Life': '日常', Adventure: '冒险', Mystery: '悬疑'
+  ALL: '全部类型', Action: '动作', Adventure: '冒险', Comedy: '喜剧', Drama: '剧情', Ecchi: '卖肉', Fantasy: '奇幻', Horror: '恐怖',
+  'Mahou Shoujo': '魔法少女', Mecha: '机甲', Music: '音乐', Mystery: '悬疑', Psychological: '心理', Romance: '恋爱',
+  'Sci-Fi': '科幻', 'Slice of Life': '日常', Sports: '运动', Supernatural: '超自然', Thriller: '惊悚',
+  'Avant Garde': '前卫', 'Award Winning': '获奖作品', 'Boys Love': '男男恋爱', 'Girls Love': '女女恋爱', Suspense: '悬疑'
 };
 
 export const FilterBar: React.FC<FilterBarProps> = ({ genres, activeGenre, search, sort, view, onGenreChange, onSearchChange, onSortChange, onViewChange }) => {
@@ -29,12 +32,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({ genres, activeGenre, searc
         <div className="flex min-w-0 items-center gap-1 overflow-x-auto pb-1 scrollbar-hide">
           <button type="button" onClick={() => onGenreChange('ALL')} className={`shrink-0 px-3 py-2 text-sm transition ${activeGenre === 'ALL' ? 'border-b-2 border-yearbook-sky font-medium text-yearbook-ink' : 'text-yearbook-muted hover:text-yearbook-ink'}`}>全部</button>
           {visibleGenres.map((genre) => (
-            <button type="button" key={genre} onClick={() => onGenreChange(genre)} className={`shrink-0 px-3 py-2 text-sm transition ${activeGenre === genre ? 'border-b-2 border-yearbook-sky font-medium text-yearbook-ink' : 'text-yearbook-muted hover:text-yearbook-ink'}`}>{labels[genre]}</button>
+            <button type="button" key={genre} onClick={() => onGenreChange(genre)} className={`shrink-0 px-3 py-2 text-sm transition ${activeGenre === genre ? 'border-b-2 border-yearbook-sky font-medium text-yearbook-ink' : 'text-yearbook-muted hover:text-yearbook-ink'}`}>{labels[genre] || genre}</button>
           ))}
           {extraGenres.length > 0 && (
             <select aria-label="更多题材" value={extraGenres.includes(activeGenre) ? activeGenre : ''} onChange={(event) => onGenreChange(event.target.value || 'ALL')} className="ml-1 min-h-9 shrink-0 border-0 bg-transparent px-2 text-sm text-yearbook-muted">
               <option value="">更多</option>
-              {extraGenres.map((genre) => <option key={genre} value={genre}>{genre}</option>)}
+              {extraGenres.map((genre) => <option key={genre} value={genre}>{labels[genre] || genre}</option>)}
             </select>
           )}
         </div>
