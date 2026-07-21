@@ -13,7 +13,7 @@ interface GameModalProps {
   onClose: () => void;
 }
 
-type GameMode = 'MENU' | 'ORACLE' | 'EMOJI' | 'TITLE';
+type GameMode = 'MENU' | 'ORACLE' | 'EMOJI' | 'TITLE' | 'KEYWORD';
 type GameStatus = 'IDLE' | 'LOADING' | 'PLAYING' | 'WIN' | 'LOSE';
 
 interface GameStats {
@@ -46,6 +46,33 @@ const TITLE_PUZZLES = [
 ];
 
 const distractors = ['青春', '物语', '奏鸣曲', '剧场版', '少女', '终末', '日常', '幻想', '记录', '夏日'];
+
+const KEYWORD_ROUNDS = [
+  {
+    title: '利兹与青鸟',
+    note: '请选出最接近这部作品的三种气质',
+    correct: ['双簧管', '青春留白', '关系微妙'],
+    decoys: ['热血擂台', '宇宙远征', '末日战争', '魔法学院', '忍者任务']
+  },
+  {
+    title: '吹响！上低音号',
+    note: '请选出最接近这部作品的三种气质',
+    correct: ['吹奏部', '合奏竞争', '舞台成长'],
+    decoys: ['异世界升级', '侦探破案', '海岛求生', '妖怪退治', '机甲决战']
+  },
+  {
+    title: '比宇宙更远的地方',
+    note: '请选出最接近这部作品的三种气质',
+    correct: ['南极旅行', '少女友谊', '出发的勇气'],
+    decoys: ['都市恋爱', '黑帮火并', '魔王城堡', '地下迷宫', '赛车竞速']
+  },
+  {
+    title: '冰菓',
+    note: '请选出最接近这部作品的三种气质',
+    correct: ['古典部', '日常推理', '青春观察'],
+    decoys: ['怪兽讨伐', '偶像选拔', '战国争霸', '时间旅行', '法术对决']
+  }
+];
 
 const initialStats: GameStats = {
   score: 0,
@@ -131,8 +158,8 @@ export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose }) => {
               <p className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">
                 {mode === 'MENU' ? 'Today Missions' : mode}
               </p>
-              <h3 className="font-jp text-lg font-black text-slate-900">
-                {mode === 'MENU' ? '选择今日挑战' : mode === 'ORACLE' ? '角色 Oracle' : mode === 'EMOJI' ? '绘文字暗号' : '番名拼图'}
+            <h3 className="font-jp text-lg font-black text-slate-900">
+                {mode === 'MENU' ? '选择今日挑战' : mode === 'ORACLE' ? '角色 Oracle' : mode === 'EMOJI' ? '绘文字暗号' : mode === 'TITLE' ? '番名拼图' : '关键词配对'}
               </h3>
             </div>
             <button
@@ -151,6 +178,7 @@ export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose }) => {
             {mode === 'ORACLE' && <OracleGame onResult={recordResult} />}
             {mode === 'EMOJI' && <EmojiGame onResult={recordResult} />}
             {mode === 'TITLE' && <TitlePuzzleGame onResult={recordResult} />}
+            {mode === 'KEYWORD' && <KeywordMatchGame onResult={recordResult} />}
           </div>
         </div>
       </div>
@@ -187,6 +215,13 @@ const GameMenu: React.FC<{ stats: GameStats; onSelect: (m: GameMode) => void }> 
       meta: 'AI 20 问',
       tone: 'from-indigo-400 to-sky-500',
       text: '向裁判提问，锁定角色。'
+    },
+    {
+      mode: 'KEYWORD' as GameMode,
+      title: '关键词配对',
+      meta: '本地可玩',
+      tone: 'from-violet-400 to-rose-400',
+      text: '从作品气质里挑出三个关键词，三轮建立你的番剧雷达。'
     }
   ];
 
@@ -580,6 +615,99 @@ const TitlePuzzleGame: React.FC<{ onResult: (win: boolean, points: number) => vo
           <button onClick={submit} className="w-full rounded-2xl bg-sky-500 py-3 text-sm font-black text-white shadow-lg shadow-sky-100 transition hover:bg-sky-600">
             提交
           </button>
+        </div>
+      ) : (
+        <ReplayBar onReplay={startGame} />
+      )}
+    </div>
+  );
+};
+
+const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => void }> = ({ onResult }) => {
+  const [status, setStatus] = useState<GameStatus>('IDLE');
+  const [round, setRound] = useState(1);
+  const [target, setTarget] = useState(KEYWORD_ROUNDS[0]);
+  const [pool, setPool] = useState<string[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [message, setMessage] = useState('');
+  const [recorded, setRecorded] = useState(false);
+
+  const startGame = () => {
+    const nextTarget = KEYWORD_ROUNDS[Math.floor(Math.random() * KEYWORD_ROUNDS.length)];
+    setTarget(nextTarget);
+    setPool(shuffle([...nextTarget.correct, ...nextTarget.decoys]));
+    setSelected([]);
+    setRound(1);
+    setMessage('');
+    setRecorded(false);
+    setStatus('PLAYING');
+  };
+
+  const finish = (win: boolean, points: number) => {
+    setStatus(win ? 'WIN' : 'LOSE');
+    if (!recorded) {
+      setRecorded(true);
+      onResult(win, points);
+    }
+  };
+
+  const submit = () => {
+    if (selected.length !== 3) {
+      setMessage('先选择 3 个关键词。');
+      return;
+    }
+    const correct = selected.every((item) => target.correct.includes(item)) && target.correct.every((item) => selected.includes(item));
+    if (!correct) {
+      setMessage('有关键词混进了别的片场，再想想。');
+      return;
+    }
+    if (round >= 3) {
+      setMessage(`雷达校准完成：${target.title}`);
+      finish(true, 160 + (3 - round) * 30);
+      return;
+    }
+    const nextTarget = KEYWORD_ROUNDS[Math.floor(Math.random() * KEYWORD_ROUNDS.length)];
+    setTarget(nextTarget);
+    setPool(shuffle([...nextTarget.correct, ...nextTarget.decoys]));
+    setSelected([]);
+    setRound((value) => value + 1);
+    setMessage('判断正确，下一部作品来了。');
+  };
+
+  if (status === 'IDLE') {
+    return <StartPanel title="关键词配对" text="每轮挑出 3 个最贴合作品气质的关键词，共 3 轮。无需 API。" action="开始" onStart={startGame} />;
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-gradient-to-b from-white/70 to-rose-50/70">
+      <GameTopBar left={`Round ${round}/3`} right="选择 3 个关键词" />
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="mx-auto max-w-2xl">
+          <div className="rounded-3xl border border-rose-100 bg-white/85 p-6 text-center shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-rose-400">Taste Radar</p>
+            <h4 className="mt-3 font-jp text-3xl font-black text-slate-900">{target.title}</h4>
+            <p className="mt-2 text-sm text-slate-500">{target.note}</p>
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+            {pool.map((keyword) => {
+              const active = selected.includes(keyword);
+              return (
+                <button
+                  key={keyword}
+                  onClick={() => setSelected((prev) => active ? prev.filter((item) => item !== keyword) : prev.length < 3 ? [...prev, keyword] : prev)}
+                  className={`min-h-16 rounded-2xl border px-3 py-3 text-sm font-black transition ${active ? 'border-rose-400 bg-rose-400 text-white shadow-lg shadow-rose-100' : 'border-sky-100 bg-white text-slate-700 hover:border-rose-200 hover:text-rose-600'}`}
+                >
+                  {keyword}
+                </button>
+              );
+            })}
+          </div>
+          <p className={`mt-5 min-h-6 text-center text-sm font-bold ${status === 'WIN' ? 'text-emerald-600' : 'text-slate-500'}`}>{message}</p>
+        </div>
+      </div>
+      {status === 'PLAYING' ? (
+        <div className="border-t border-rose-100 bg-white/70 p-4">
+          <button onClick={submit} className="w-full rounded-2xl bg-rose-400 py-3 text-sm font-black text-white shadow-lg shadow-rose-100 transition hover:bg-rose-500">确认配对</button>
         </div>
       ) : (
         <ReplayBar onReplay={startGame} />

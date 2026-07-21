@@ -11,6 +11,7 @@ const TIMEOUT_MS = 12000;
 const env = import.meta.env;
 const GEMINI_API_KEY = env.VITE_GEMINI_API_KEY || env.VITE_API_KEY || env.GEMINI_API_KEY || env.API_KEY;
 const DEEPSEEK_API_KEY = env.VITE_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY;
+const DEEPSEEK_PROXY_URL = env.VITE_DEEPSEEK_PROXY_URL || '/api/deepseek/chat';
 const ALIYUN_API_KEY = env.VITE_ALIYUN_API_KEY || env.ALIYUN_API_KEY;
 const PREFER_DEEPSEEK = env.VITE_USE_DEEPSEEK_FIRST !== 'false';
 const PREFER_ALIYUN = env.VITE_ALIYUN_ONLY === 'true' || env.VITE_USE_ALIYUN_FIRST === 'true';
@@ -247,7 +248,7 @@ const callGemini = async (prompt: string) => {
 
 const callDeepSeekRaw = async (prompt: string) => {
   const callServerProxy = async () => {
-    const res = await fetch('/api/deepseek/chat', {
+    const res = await fetch(DEEPSEEK_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, model: DEEPSEEK_MODEL })
@@ -478,6 +479,20 @@ export interface EmojiGameChallenge {
   hint: string;
 }
 
+const cleanGameText = (value: unknown, blockedWords: string[] = []) => {
+  let text = String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  blockedWords.filter(Boolean).forEach((word) => {
+    text = text.split(word).join('这个角色');
+  });
+  return text.replace(/出自[^，。；;]{0,24}/g, '这部作品').slice(0, 32);
+};
+
+const normalizeCharacter = (value: any): GameCharacter => ({
+  name: String(value?.name || '未知角色'),
+  source: String(value?.source || '未知作品'),
+  hint: cleanGameText(value?.hint || '先从角色的行为和关系入手。', [String(value?.name || ''), String(value?.source || '')])
+});
+
 export const startAnimeGame = async (): Promise<GameCharacter> => {
   const seed = Date.now() + Math.random();
 
@@ -487,11 +502,13 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
     1) 不要总是热门主角，要覆盖不同题材（日常/战斗/悬疑/运动/偶像）。
     2) 角色需有一定知名度，但不必是顶流。
     3) 随机种子：${seed}。
+    4) hint 是给玩家的线索，只能描述角色的性格、行为、关系或身份特征。
+    5) hint 严禁出现角色姓名、作品名、作者名、声优名、角色专属名词或“出自某作品”等来源信息。
 
     返回 JSON：{
       "name": "角色全名 (中文)",
       "source": "作品名 (中文)",
-      "hint": "一句决定性提示，不要直接包含名字"
+      "hint": "一句不含答案和作品来源的决定性提示"
     }
   `;
 
@@ -505,10 +522,11 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
         config: { responseMimeType: 'application/json' }
       })
     );
-    return parseJsonSafe(response.text);
+    return normalizeCharacter(parseJsonSafe(response.text));
   };
 
-  const tryDeepSeek = async () => callDeepSeekRaw(prompt);
+  const tryDeepSeek = async () => normalizeCharacter(await callDeepSeekRaw(prompt));
+  const tryAliyun = async () => normalizeCharacter(await callAliyunRaw(prompt));
   const canAliyun = Boolean(getAliyunKey());
 
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
@@ -521,7 +539,7 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
 
   if (PREFER_ALIYUN || !GEMINI_API_KEY) {
     try {
-      return await callAliyunRaw(prompt);
+      return await tryAliyun();
     } catch (e) {
       console.warn('Aliyun game start failed, trying Gemini:', e);
       try {
@@ -535,7 +553,7 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
   if (canAliyun) {
     try {
       // Race both providers; take the fastest success to reduce wait
-      const providers = [tryGemini(), tryDeepSeek(), callAliyunRaw(prompt)];
+      const providers = [tryGemini(), tryDeepSeek(), tryAliyun()];
       return await Promise.any(providers);
     } catch (e) {
       console.warn('Race failed, fallback Gemini->Aliyun', e);
@@ -545,7 +563,7 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
         try {
           return await tryDeepSeek();
         } catch {
-          return await callAliyunRaw(prompt);
+          return await tryAliyun();
         }
       }
     }
@@ -560,7 +578,7 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
     } catch (deepseekError) {
       console.warn('DeepSeek game start failed, trying Aliyun:', deepseekError);
     }
-    return await callAliyunRaw(prompt);
+    return await tryAliyun();
   }
 };
 
@@ -670,13 +688,20 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
 
 export const askGameOracle = async (secret: GameCharacter, question: string): Promise<{ answer: 'YES' | 'NO' | 'UNKNOWN', flavorText: string }> => {
   const prompt = `
-    20 问游戏裁判。秘密角色：${secret.name}（出自：${secret.source}）。用户问：“${question}”。
+    20 问游戏裁判。内部秘密角色：${secret.name}，内部作品：${secret.source}。用户问：“${question}”。
     规则：
-    - 不要泄漏未被询问的属性。
+    - 角色名和作品名只是内部判定资料，绝对不能出现在回答中。
+    - 不要泄漏用户没有询问的属性，不要补充角色名、作品名、作者、声优或作品来源。
+    - 不要引用原作台词、专有名词或任何可以直接反查答案的短语。
     - answer: YES/NO/UNKNOWN。
-    - flavorText：中文，≤20 字，冷静或略神秘，不剧透。
+    - flavorText：中文，≤20 字，只对用户问题做克制回应，不能出现任何人名、作品名或“出自……”等来源信息。
     JSON: { "answer": "YES"|"NO"|"UNKNOWN", "flavorText": "string" }
   `;
+
+  const normalizeOracle = (value: any) => ({
+    answer: value?.answer === 'YES' || value?.answer === 'NO' ? value.answer : 'UNKNOWN',
+    flavorText: cleanGameText(value?.flavorText || '信号稳定，但答案仍在雾中。', [secret.name, secret.source])
+  } as { answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string });
 
   const tryGemini = async () => {
     const ai = getClient();
@@ -688,10 +713,11 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
         config: { responseMimeType: 'application/json' }
       })
     );
-    return parseJsonSafe(response.text);
+    return normalizeOracle(parseJsonSafe(response.text));
   };
 
-  const tryDeepSeek = async () => callDeepSeekRaw(prompt);
+  const tryDeepSeek = async () => normalizeOracle(await callDeepSeekRaw(prompt));
+  const tryAliyun = async () => normalizeOracle(await callAliyunRaw(prompt));
 
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
     try {
@@ -703,14 +729,14 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
 
   if (PREFER_ALIYUN || !GEMINI_API_KEY) {
     try {
-      return await callAliyunRaw(prompt);
+      return await tryAliyun();
     } catch (e) {
       console.warn('Aliyun oracle failed, trying DeepSeek/Gemini:', e);
       try {
         return await tryDeepSeek();
       } catch {
         try {
-          return await tryGemini();
+        return await tryGemini();
         } catch {
           return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
         }
@@ -726,7 +752,7 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
       return await tryDeepSeek();
     } catch {
       try {
-        return await callAliyunRaw(prompt);
+        return await tryAliyun();
       } catch {
         return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
       }

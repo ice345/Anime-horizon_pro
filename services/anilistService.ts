@@ -52,6 +52,19 @@ query ($year: Int, $season: MediaSeason, $page: Int, $perPage: Int) {
       genres
       averageScore
       popularity
+      status
+      episodes
+      duration
+      studios(isMain: true) {
+        nodes {
+          name
+        }
+      }
+      nextAiringEpisode {
+        airingAt
+        timeUntilAiring
+        episode
+      }
     }
   }
 }
@@ -98,89 +111,52 @@ async function fetchWithRetry(variables: any, retries = 0): Promise<any> {
   }
 }
 
-async function fetchLocalByYear(year: number, perSeason: number): Promise<Anime[]> {
+const normalizeAnime = (anime: any): Anime => ({
+  ...anime,
+  id: String(anime.id),
+  studios: anime.studios?.nodes?.map((studio: { name: string }) => studio.name) || anime.studios || []
+});
+
+async function fetchLocalBySeason(year: number, season: Season, perSeason: number): Promise<Anime[]> {
   try {
     const res = await fetch(`${LOCAL_DATA_BASE}/anime-${year}.json`);
     if (!res.ok) throw new Error(`Local data missing for ${year}`);
     const data = await res.json() as Anime[];
-
-    // Enforce per-season limit locally to mirror remote behavior
-    const grouped: Record<Season, Anime[]> = {
-      WINTER: [],
-      SPRING: [],
-      SUMMER: [],
-      FALL: [],
-    };
-    data.forEach((a) => {
-      if (grouped[a.season]) grouped[a.season].push(a);
-    });
-
-    const trimmed = (Object.keys(grouped) as Season[])
-      .flatMap((season) => grouped[season].slice(0, perSeason));
-
-    return trimmed;
+    return data.filter((anime) => anime.season === season).slice(0, perSeason).map(normalizeAnime);
   } catch (err) {
     console.warn(`[LOCAL DATA] ${err instanceof Error ? err.message : err}`);
-    // Fallback to remote to avoid empty UI
-    return fetchRemoteByYear(year, perSeason);
+    return fetchRemoteBySeason(year, season, perSeason);
   }
 }
 
-async function fetchRemoteByYear(year: number, perSeason: number): Promise<Anime[]> {
-  const seasons: Season[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
-  let yearAnime: Anime[] = [];
+async function fetchRemoteBySeason(year: number, season: Season, perSeason: number): Promise<Anime[]> {
+  const data = await fetchWithRetry({
+    year,
+    season,
+    page: 1,
+    perPage: perSeason
+  });
 
-  for (const season of seasons) {
-    let page = 1;
-    let hasNext = true;
-
-    while (hasNext && page <= 3) {
-      try {
-        if (yearAnime.length > 0) {
-          await delay(CONFIG.PAGE_DELAY);
-        }
-
-        const data = await fetchWithRetry({
-          year,
-          season,
-          page,
-          perPage: perSeason
-        });
-
-        if (data?.Page?.media) {
-          yearAnime.push(...data.Page.media);
-        }
-
-        hasNext = data?.Page?.pageInfo?.hasNextPage;
-        page++;
-
-      } catch (e) {
-        console.error(`Failed ${year} ${season} page ${page}`, e);
-        break; // 出问题直接跳出该季度
-      }
-    }
-
-    // 季度之间额外缓冲
-    await delay(CONFIG.SEASON_DELAY);
-  }
-
-  return yearAnime;
+  return (data?.Page?.media || []).map(normalizeAnime);
 }
 
-export const fetchAnimeByYear = async (year: number, perSeason: number = 20): Promise<Anime[]> => {
-  const cacheKey = `${DATA_MODE}:${year}-${perSeason}`;
-  
-  // Check cache first
+export const fetchAnimeBySeason = async (year: number, season: Season, perSeason: number = 20): Promise<Anime[]> => {
+  const cacheKey = `${DATA_MODE}:${year}-${season}-${perSeason}`;
+
   if (animeCache[cacheKey]) {
     return animeCache[cacheKey];
   }
 
-  const loader = DATA_MODE === 'local' ? fetchLocalByYear : fetchRemoteByYear;
-  const yearAnime = await loader(year, perSeason);
+  const loader = DATA_MODE === 'local' ? fetchLocalBySeason : fetchRemoteBySeason;
+  const seasonAnime = await loader(year, season, perSeason);
+  animeCache[cacheKey] = seasonAnime;
+  return seasonAnime;
+};
 
-  // Save to cache
-  animeCache[cacheKey] = yearAnime;
-  return yearAnime;
+export const fetchAnimeByYear = async (year: number, perSeason: number = 20): Promise<Anime[]> => {
+  const seasons: Season[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
+  const results = await Promise.all(seasons.map((season) => fetchAnimeBySeason(year, season, perSeason)));
+  return results.flat();
 };
 
 // Allow clearing cache for config changes

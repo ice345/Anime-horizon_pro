@@ -24,6 +24,15 @@ export interface Anime {
   averageScore?: number;
   popularity?: number;
   format?: string; // TV, MOVIE, etc.
+  status?: string;
+  episodes?: number;
+  duration?: number;
+  studios?: string[];
+  nextAiringEpisode?: {
+    airingAt: number;
+    timeUntilAiring: number;
+    episode: number;
+  };
 }
 
 export type OtakuRank = '现充' | '路人' | '动画爱好者' | '老二次元' | '萌豚' | '婆罗门' | '动漫之神';

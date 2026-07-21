@@ -39,6 +39,7 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle 
         <img 
           src={coverUrl} 
           alt={displayTitle}
+          decoding="async"
           className={`
             w-full h-full object-cover transition-transform duration-700 ease-out
             ${selected ? 'grayscale-0' : 'grayscale-[0.3] group-hover:grayscale-0'}

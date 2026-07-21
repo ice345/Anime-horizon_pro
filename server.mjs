@@ -9,6 +9,7 @@ const port = Number(process.env.PORT || 3000);
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepseekBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions';
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const corsOrigin = process.env.CORS_ORIGIN || '*';
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -39,11 +40,22 @@ const readBody = (req) => {
 };
 
 const sendJson = (res, status, data) => {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'Access-Control-Allow-Origin': corsOrigin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type'
+  });
   res.end(JSON.stringify(data));
 };
 
 const handleDeepSeek = async (req, res) => {
+  if (req.method === 'OPTIONS') {
+    sendJson(res, 204, {});
+    return;
+  }
+
   if (req.method !== 'POST') {
     sendJson(res, 405, { error: 'Method not allowed' });
     return;
@@ -83,7 +95,13 @@ const handleDeepSeek = async (req, res) => {
       return;
     }
 
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'Access-Control-Allow-Origin': corsOrigin,
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type'
+    });
     res.end(text);
   } catch (error) {
     sendJson(res, 500, { error: error instanceof Error ? error.message : 'DeepSeek proxy failed' });

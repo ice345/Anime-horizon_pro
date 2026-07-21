@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { AnimeCard } from './components/AnimeCard';
 import { AnalysisModal } from './components/AnalysisModal';
 import { SqlExportModal } from './components/SqlExportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { GameModal } from './components/GameModal';
 import { TasteQuizModal } from './components/TasteQuizModal';
+import { GuidePage } from './components/GuidePage';
+import { SeasonSection } from './components/SeasonSection';
 import { analyzeAnimeTaste } from './services/geminiService';
-import { fetchAnimeByYear, clearAnimeCache } from './services/anilistService';
-import { OtakuRank, Season, SEASONS, SEASON_CN, Anime } from './types';
+import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
+import { Anime, OtakuRank, Season, SEASONS, SEASON_ORDER } from './types';
 import lizuHero from './pics/LizuToAoiTori_sora.png';
 
 
@@ -18,6 +19,14 @@ const CURRENT_REAL_YEAR = CURRENT_DATE.getFullYear();
 const MAX_LOOKAHEAD = 1; // Always show 1 year into the future for upcoming anime
 const DEFAULT_START_YEAR = 2000; // Extend history back to 2000
 const DEFAULT_END_YEAR = CURRENT_REAL_YEAR + MAX_LOOKAHEAD;
+
+const getCurrentSeason = (): Season => {
+  const month = new Date().getMonth() + 1;
+  if (month <= 3) return 'WINTER';
+  if (month <= 6) return 'SPRING';
+  if (month <= 9) return 'SUMMER';
+  return 'FALL';
+};
 
 const buildYears = (start: number, end: number) => {
   const safeStart = Math.max(DEFAULT_START_YEAR, Math.min(start, DEFAULT_END_YEAR));
@@ -46,9 +55,9 @@ export default function App() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map());
+  const [route, setRoute] = useState<'guide' | 'record'>(() => window.location.pathname === '/guide' ? 'guide' : 'record');
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(loadSavedYearRange);
   const years = useMemo(() => buildYears(yearRange.start, yearRange.end), [yearRange]);
-  const YEARS_LEN = years.length;
   const [activeYear, setActiveYear] = useState<number>(() => {
     const current = CURRENT_REAL_YEAR;
     if (current >= yearRange.start && current <= yearRange.end) return current;
@@ -56,7 +65,9 @@ export default function App() {
   });
   
   const [animeList, setAnimeList] = useState<Anime[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadedSeasons, setLoadedSeasons] = useState<Set<string>>(new Set());
+  const [loadingSeasons, setLoadingSeasons] = useState<Set<string>>(new Set());
+  const requestVersionRef = useRef(0);
 
   // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -122,26 +133,46 @@ export default function App() {
     }
   }, [yearRange, activeYear]);
 
-  // Fetch data when year or limit changes
-  const loadData = async (forceObj?: {year: number, limit: number}) => {
-    const y = forceObj ? forceObj.year : activeYear;
-    const l = forceObj ? forceObj.limit : itemsPerSeason;
+  const navigate = (nextRoute: 'guide' | 'record') => {
+    const path = nextRoute === 'guide' ? '/guide' : '/';
+    window.history.pushState({}, '', path);
+    setRoute(nextRoute);
+  };
 
-    setIsLoading(true);
-    setAnimeList([]); 
+  useEffect(() => {
+    const handlePopState = () => setRoute(window.location.pathname === '/guide' ? 'guide' : 'record');
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const loadSeason = async (year: number, season: Season, limit: number, force = false) => {
+    const key = `${year}-${season}-${limit}`;
+    if (!force && (loadedSeasons.has(key) || loadingSeasons.has(key))) return;
+
+    const requestVersion = requestVersionRef.current;
+    setLoadingSeasons((prev) => new Set(prev).add(key));
     try {
-      const data = await fetchAnimeByYear(y, l);
-      setAnimeList(data);
+      const data = await fetchAnimeBySeason(year, season, limit);
+      if (requestVersion !== requestVersionRef.current) return;
+      setAnimeList((prev) => [...prev.filter((item) => item.season !== season), ...data].sort((a, b) => SEASON_ORDER[a.season] - SEASON_ORDER[b.season]));
+      setLoadedSeasons((prev) => new Set(prev).add(key));
     } catch (error) {
-      console.error("Failed to fetch anime:", error);
+      console.error(`Failed to fetch ${year} ${season}:`, error);
     } finally {
-      setIsLoading(false);
+      setLoadingSeasons((prev) => {
+        const next = new Set(prev);
+        next.delete(key);
+        return next;
+      });
     }
   };
 
   useEffect(() => {
-    loadData();
-  }, [activeYear]);
+    requestVersionRef.current += 1;
+    setAnimeList([]);
+    setLoadedSeasons(new Set());
+    void loadSeason(activeYear, getCurrentSeason(), itemsPerSeason);
+  }, [activeYear, itemsPerSeason]);
 
   // Handle configuration change re-fetch
   const handleConfigChange = (newLimit: number) => {
@@ -155,8 +186,20 @@ export default function App() {
 
   const handleClearCacheAndReload = () => {
     clearAnimeCache();
-    loadData({ year: activeYear, limit: itemsPerSeason });
+    requestVersionRef.current += 1;
+    setAnimeList([]);
+    setLoadedSeasons(new Set());
+    void loadSeason(activeYear, getCurrentSeason(), itemsPerSeason, true);
     setIsSettingsOpen(false);
+  };
+
+  const handleClearSelection = () => {
+    setSelectedIds(new Set());
+    setSelectedAnimeDetails(new Map());
+    setQuickTasteProfile(null);
+    setAnalysisData(null);
+    localStorage.removeItem('anime-horizon-selected-v3');
+    localStorage.removeItem('anime-horizon-details-v3');
   };
 
   // Export all current cached data + selection
@@ -216,7 +259,7 @@ export default function App() {
     reader.readAsText(file);
   };
 
-  const toggleAnime = (id: string) => {
+  const toggleAnime = (id: string, anime: Anime) => {
     const next = new Set(selectedIds);
     const detailsNext = new Map(selectedAnimeDetails);
 
@@ -225,10 +268,7 @@ export default function App() {
       detailsNext.delete(id);
     } else {
       next.add(id);
-      const anime = animeList.find(a => String(a.id) === id);
-      if (anime) {
-        detailsNext.set(id, anime);
-      }
+      detailsNext.set(id, anime);
     }
     setSelectedIds(next);
     setSelectedAnimeDetails(detailsNext);
@@ -412,64 +452,70 @@ export default function App() {
             ))}
           </div>
         </div>
+        <div className="mx-auto flex max-w-[1800px] flex-col gap-3 border-t border-sky-100/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2">
+            <button onClick={() => navigate('guide')} className={`rounded-xl px-4 py-2 text-sm font-black transition ${route === 'guide' ? 'bg-sky-500 text-white' : 'text-slate-500 hover:bg-sky-50 hover:text-sky-700'}`}>
+              新番导视
+            </button>
+            <button onClick={() => navigate('record')} className={`rounded-xl px-4 py-2 text-sm font-black transition ${route === 'record' ? 'bg-sky-50 text-sky-700' : 'text-slate-500 hover:bg-sky-50 hover:text-sky-700'}`}>
+              我的记录
+            </button>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-slate-500">
+            <label className="flex items-center gap-2">
+              年份范围
+              <select value={yearRange.start} onChange={(event) => handleYearRangeChange(Number(event.target.value), yearRange.end)} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
+                {Array.from({ length: maxSelectableYear - minSelectableYear + 1 }, (_, index) => maxSelectableYear - index).map((year) => <option key={`top-start-${year}`} value={year}>{year}</option>)}
+              </select>
+              <span>至</span>
+              <select value={yearRange.end} onChange={(event) => handleYearRangeChange(yearRange.start, Number(event.target.value))} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
+                {Array.from({ length: maxSelectableYear - minSelectableYear + 1 }, (_, index) => maxSelectableYear - index).map((year) => <option key={`top-end-${year}`} value={year}>{year}</option>)}
+              </select>
+            </label>
+            <label className="flex items-center gap-2">
+              每季
+              <select value={itemsPerSeason} onChange={(event) => handleConfigChange(Number(event.target.value))} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
+                {[10, 15, 20, 25, 30, 40, 50].map((count) => <option key={count} value={count}>{count} 部</option>)}
+              </select>
+            </label>
+            <button onClick={() => setIsSettingsOpen(true)} className="rounded-lg border border-sky-100 bg-white px-3 py-1.5 text-sky-700 transition hover:bg-sky-50">
+              数据设置
+            </button>
+          </div>
+        </div>
       </nav>
 
       {/* Main Content Area */}
-      <main className="max-w-[1800px] mx-auto px-4 py-8 relative z-10 min-h-[60vh]">
-        {isLoading ? (
-          <div className="animate-pulse space-y-12 mt-8 opacity-50">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="space-y-6">
-                <div className="h-10 w-48 bg-sky-100 rounded-lg"></div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
-                  {[1, 2, 3, 4, 5].map(j => <div key={j} className="aspect-[2/3] bg-sky-100 rounded-xl"></div>)}
-                </div>
+      {route === 'guide' ? (
+        <GuidePage year={activeYear} itemsPerSeason={itemsPerSeason} selectedIds={selectedIds} onToggle={toggleAnime} />
+      ) : (
+        <main className="relative z-10 mx-auto min-h-[60vh] max-w-[1800px] px-4 py-8">
+          <div className="mb-8 rounded-3xl border border-sky-100 bg-white/65 px-5 py-4 shadow-sm">
+            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">My Archive / {activeYear}</p>
+                <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">我的观看记录</h2>
               </div>
-            ))}
+              <p className="text-sm text-slate-500">向下浏览时，季度数据会自动加载</p>
+            </div>
           </div>
-        ) : (
-          SEASONS.map((season) => {
-            const animes = seasonalAnime[season];
-            if (animes.length === 0) return null;
-
+          {SEASONS.map((season) => {
+            const key = `${activeYear}-${season}-${itemsPerSeason}`;
             return (
-              <div key={season} className="mb-20 animate-fade-in">
-                 {/* Season Header */}
-                <div className="flex items-end gap-4 mb-8 px-2 border-b border-sky-100 pb-4">
-                  <h2 className="text-4xl font-black font-jp text-slate-800 drop-shadow-sm">
-                    {SEASON_CN[season].split(' ')[0]}
-                    <span className="text-lg font-sans font-normal text-slate-400 ml-2">{SEASON_CN[season].split(' ')[1]}</span>
-                  </h2>
-                  <span className="text-6xl font-black text-sky-100 absolute right-0 -translate-y-4 pointer-events-none select-none font-sans">
-                    {season}
-                  </span>
-                </div>
-                
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-4 sm:gap-6 lg:gap-8 perspective-1000">
-                  {animes.map(anime => (
-                    <AnimeCard
-                      key={anime.id}
-                      anime={anime}
-                      selected={selectedIds.has(String(anime.id))}
-                      onToggle={toggleAnime}
-                    />
-                  ))}
-                </div>
-              </div>
+              <SeasonSection
+                key={season}
+                season={season}
+                anime={seasonalAnime[season]}
+                loading={loadingSeasons.has(key)}
+                loaded={loadedSeasons.has(key)}
+                selectedIds={selectedIds}
+                onToggle={toggleAnime}
+                onVisible={(visibleSeason) => void loadSeason(activeYear, visibleSeason, itemsPerSeason)}
+              />
             );
-          })
-        )}
-
-        {!isLoading && animeList.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-40 text-center opacity-60">
-             <div className="text-6xl mb-4 grayscale">🗻</div>
-             <p className="font-mono text-sm text-slate-500">NO DATA FOUND FOR {activeYear}</p>
-             {activeYear > CURRENT_REAL_YEAR && (
-                 <p className="text-xs text-anime-highlight mt-2">（未来番剧可能尚未公布或数据库未更新）</p>
-             )}
-           </div>
-        )}
-      </main>
+          })}
+        </main>
+      )}
 
       {/* Dock Bar */}
       <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl z-50">
@@ -558,6 +604,7 @@ export default function App() {
         onExportJson={handleExportJson}
         onImportJson={handleImportJson}
         onClearCache={handleClearCacheAndReload}
+        onClearSelection={handleClearSelection}
       />
     </div>
   );

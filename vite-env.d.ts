@@ -4,6 +4,7 @@ interface ImportMetaEnv {
   readonly VITE_GEMINI_API_KEY?: string;
   readonly VITE_API_KEY?: string;
   readonly VITE_DEEPSEEK_API_KEY?: string;
+  readonly VITE_DEEPSEEK_PROXY_URL?: string;
   readonly VITE_ALIYUN_API_KEY?: string;
   readonly VITE_USE_DEEPSEEK_FIRST?: string;
   readonly VITE_ALIYUN_ONLY?: string;

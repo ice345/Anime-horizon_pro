@@ -38,6 +38,14 @@
 
     `server.mjs` 会在服务端读取这个 key，并通过 `/api/deepseek/chat` 代理 AI 请求，避免把 key 打进浏览器包。
 
+    如果 Cloudflare 只是给 Render Web Service 做 CNAME，前端无需额外配置；如果 Cloudflare 使用的是 Pages/静态托管，则在 Cloudflare 的构建环境变量中配置：
+
+    ```env
+    VITE_DEEPSEEK_PROXY_URL=https://你的-render-服务.onrender.com/api/deepseek/chat
+    ```
+
+    同时在 Render 中配置 `CORS_ORIGIN=https://你的-pages-域名.pages.dev`。自定义域名场景把它替换为实际前端域名即可。
+
 3.  **准备数据（推荐）**
     首次运行建议先拉取本地数据，以便使用本地模式或离线预览：
 
