@@ -14,12 +14,12 @@ export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnim
   const recent = selectedAnime.slice(-3).reverse();
 
   return (
-    <aside aria-labelledby="watchlist-title" className="rounded-[var(--ah-radius-lg)] border border-rose-100 bg-[linear-gradient(145deg,#fffefd,rgba(253,244,246,0.82))] p-5 shadow-[var(--ah-shadow-soft)] sm:p-6">
-      <p className="ah-section-label !text-yearbook-pink">Season Notes</p>
+    <aside aria-labelledby="watchlist-title" className="self-start rounded-[var(--ah-radius-lg)] border border-rose-100 bg-[linear-gradient(145deg,#fffefd,rgba(253,244,246,0.82))] p-5 shadow-[var(--ah-shadow-soft)] lg:sticky lg:top-5 sm:p-6">
+      <p className="ah-section-label !text-yearbook-pink">My Archive</p>
       <div className="mt-2 flex items-start justify-between gap-4">
         <div>
-          <h2 id="watchlist-title" className="font-jp text-2xl font-medium text-yearbook-ink">我的追番笔记</h2>
-          <p className="mt-2 text-sm leading-6 text-yearbook-muted">把想要记住的作品，留在这一页年鉴里。</p>
+          <h2 id="watchlist-title" className="font-jp text-2xl font-medium text-yearbook-ink">我的动画年鉴</h2>
+          <p className="mt-2 text-sm leading-6 text-yearbook-muted">每次收录都会进入你的推荐列表，也是鉴赏档案读取的个人资料库。</p>
         </div>
         <span className="pt-1 text-4xl font-medium text-yearbook-pink">{selectedAnime.length}</span>
       </div>
@@ -39,11 +39,11 @@ export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnim
               <p className="mt-0.5 text-[11px] text-yearbook-muted">{item.status === 'RELEASING' ? '正在追更' : '收入年鉴'}</p>
             </div>
           </div>
-        )) : <p className="py-4 text-sm leading-6 text-yearbook-muted">还没有收藏。点一部作品，让它留在你的这一季里。</p>}
+        )) : <p className="py-4 text-sm leading-6 text-yearbook-muted">还没有收录。点一部作品，让它成为你年鉴里的第一条推荐。</p>}
       </div>
 
       <div className="mt-5 flex items-center gap-4 border-t border-rose-100 pt-4">
-        <button type="button" onClick={onOpenArchive} className="text-sm font-medium text-yearbook-ink underline decoration-rose-200 underline-offset-4 transition hover:text-yearbook-sky">查看完整年鉴</button>
+        <button type="button" onClick={onOpenArchive} className="text-sm font-medium text-yearbook-ink underline decoration-rose-200 underline-offset-4 transition hover:text-yearbook-sky">打开推荐列表</button>
         <button type="button" onClick={onAnalyze} className="text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink">生成鉴赏档案</button>
       </div>
     </aside>

@@ -7,13 +7,15 @@ import {
   startAnimeGame,
   startEmojiGame
 } from '../services/geminiService';
+import { Anime, Season, SEASON_CN } from '../types';
 
 interface GameModalProps {
   isOpen: boolean;
   onClose: () => void;
+  animePool: Anime[];
 }
 
-type GameMode = 'MENU' | 'ORACLE' | 'EMOJI' | 'TITLE' | 'KEYWORD';
+type GameMode = 'MENU' | 'ORACLE' | 'EMOJI' | 'TITLE' | 'KEYWORD' | 'SEASON' | 'DOSSIER';
 type GameStatus = 'IDLE' | 'LOADING' | 'PLAYING' | 'WIN' | 'LOSE';
 
 interface GameStats {
@@ -47,33 +49,6 @@ const TITLE_PUZZLES = [
 
 const distractors = ['青春', '物语', '奏鸣曲', '剧场版', '少女', '终末', '日常', '幻想', '记录', '夏日'];
 
-const KEYWORD_ROUNDS = [
-  {
-    title: '利兹与青鸟',
-    note: '请选出最接近这部作品的三种气质',
-    correct: ['双簧管', '青春留白', '关系微妙'],
-    decoys: ['热血擂台', '宇宙远征', '末日战争', '魔法学院', '忍者任务']
-  },
-  {
-    title: '吹响！上低音号',
-    note: '请选出最接近这部作品的三种气质',
-    correct: ['吹奏部', '合奏竞争', '舞台成长'],
-    decoys: ['异世界升级', '侦探破案', '海岛求生', '妖怪退治', '机甲决战']
-  },
-  {
-    title: '比宇宙更远的地方',
-    note: '请选出最接近这部作品的三种气质',
-    correct: ['南极旅行', '少女友谊', '出发的勇气'],
-    decoys: ['都市恋爱', '黑帮火并', '魔王城堡', '地下迷宫', '赛车竞速']
-  },
-  {
-    title: '冰菓',
-    note: '请选出最接近这部作品的三种气质',
-    correct: ['古典部', '日常推理', '青春观察'],
-    decoys: ['怪兽讨伐', '偶像选拔', '战国争霸', '时间旅行', '法术对决']
-  }
-];
-
 const initialStats: GameStats = {
   score: 0,
   streak: 0,
@@ -91,6 +66,42 @@ const shuffle = <T,>(items: T[]) => {
   return next;
 };
 
+const getAnimeTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
+const getSeasonLabel = (season: Season, year: number) => `${year} ${SEASON_CN[season].split(' ')[0]}`;
+const uniqueAnime = (items: Anime[]) => Array.from(new Map(items.map((item) => [String(item.id), item])).values());
+
+const genreKeywords: Record<string, string> = {
+  Action: '动作张力', Adventure: '旅途探索', Comedy: '喜剧节奏', Drama: '情绪关系',
+  Fantasy: '幻想设定', Horror: '惊悚氛围', Mecha: '机械设定', Music: '音乐表达',
+  Mystery: '谜题推进', Psychological: '心理拉扯', Romance: '恋爱关系', SciFi: '科幻想象',
+  'Slice of Life': '日常留白', Sports: '竞技成长', Supernatural: '超自然气息', Thriller: '悬念压力'
+};
+
+const keywordDecoys = ['宇宙远征', '海岛求生', '魔王城堡', '机甲决战', '热血擂台', '地下迷宫', '忍者任务', '赛车竞速'];
+
+interface KeywordRound {
+  id: string;
+  title: string;
+  note: string;
+  correct: string[];
+  decoys: string[];
+}
+
+const createKeywordRound = (items: Anime[]): KeywordRound | null => {
+  const candidates = uniqueAnime(items).filter((item) => item.genres?.length && getAnimeTitle(item) !== '未命名作品');
+  if (!candidates.length) return null;
+  const anime = candidates[Math.floor(Math.random() * candidates.length)];
+  const correct = Array.from(new Set(anime.genres.map((genre) => genreKeywords[genre]).filter(Boolean))).slice(0, 3);
+  while (correct.length < 3) correct.push(['角色关系', '演出节奏', '世界观设定'][correct.length]);
+  return {
+    id: String(anime.id),
+    title: getAnimeTitle(anime),
+    note: '请选出最贴近这部作品的三种气质',
+    correct,
+    decoys: shuffle(keywordDecoys.filter((item) => !correct.includes(item))).slice(0, 5)
+  };
+};
+
 const loadStats = (): GameStats => {
   if (typeof window === 'undefined') return initialStats;
   try {
@@ -101,7 +112,7 @@ const loadStats = (): GameStats => {
   }
 };
 
-export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose }) => {
+export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose, animePool }) => {
   const [mode, setMode] = useState<GameMode>('MENU');
   const [stats, setStats] = useState<GameStats>(loadStats);
 
@@ -159,7 +170,7 @@ export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose }) => {
                 {mode === 'MENU' ? 'Today Missions' : mode}
               </p>
             <h3 className="font-jp text-lg font-black text-slate-900">
-                {mode === 'MENU' ? '选择今日挑战' : mode === 'ORACLE' ? '角色 Oracle' : mode === 'EMOJI' ? '绘文字暗号' : mode === 'TITLE' ? '番名拼图' : '关键词配对'}
+                {mode === 'MENU' ? '选择今日挑战' : mode === 'ORACLE' ? '角色 Oracle' : mode === 'EMOJI' ? '绘文字暗号' : mode === 'TITLE' ? '番名拼图' : mode === 'KEYWORD' ? '关键词配对' : mode === 'SEASON' ? '放送季猜测' : '资料卡辨认'}
               </h3>
             </div>
             <button
@@ -178,7 +189,9 @@ export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose }) => {
             {mode === 'ORACLE' && <OracleGame onResult={recordResult} />}
             {mode === 'EMOJI' && <EmojiGame onResult={recordResult} />}
             {mode === 'TITLE' && <TitlePuzzleGame onResult={recordResult} />}
-            {mode === 'KEYWORD' && <KeywordMatchGame onResult={recordResult} />}
+            {mode === 'KEYWORD' && <KeywordMatchGame animePool={animePool} onResult={recordResult} />}
+            {mode === 'SEASON' && <BroadcastSeasonGame animePool={animePool} onResult={recordResult} />}
+            {mode === 'DOSSIER' && <DossierGame animePool={animePool} onResult={recordResult} />}
           </div>
         </div>
       </div>
@@ -219,9 +232,23 @@ const GameMenu: React.FC<{ stats: GameStats; onSelect: (m: GameMode) => void }> 
     {
       mode: 'KEYWORD' as GameMode,
       title: '关键词配对',
-      meta: '本地可玩',
+      meta: '年鉴题库',
       tone: 'from-violet-400 to-rose-400',
-      text: '从作品气质里挑出三个关键词，三轮建立你的番剧雷达。'
+      text: '从你的年鉴和当前番表里，挑出最贴近作品的三种气质。'
+    },
+    {
+      mode: 'SEASON' as GameMode,
+      title: '放送季猜测',
+      meta: '年鉴题库',
+      tone: 'from-amber-400 to-orange-300',
+      text: '给出作品名，回忆它最初抵达屏幕的季节。'
+    },
+    {
+      mode: 'DOSSIER' as GameMode,
+      title: '资料卡辨认',
+      meta: '年鉴题库',
+      tone: 'from-emerald-400 to-cyan-400',
+      text: '只看年份、题材和形式，在四部作品中找出正确答案。'
     }
   ];
 
@@ -232,7 +259,7 @@ const GameMenu: React.FC<{ stats: GameStats; onSelect: (m: GameMode) => void }> 
         <StatCard label="Streak" value={stats.streak} />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {missions.map((mission) => (
           <button
             key={mission.mode}
@@ -623,17 +650,18 @@ const TitlePuzzleGame: React.FC<{ onResult: (win: boolean, points: number) => vo
   );
 };
 
-const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => void }> = ({ onResult }) => {
+const KeywordMatchGame: React.FC<{ animePool: Anime[]; onResult: (win: boolean, points: number) => void }> = ({ animePool, onResult }) => {
   const [status, setStatus] = useState<GameStatus>('IDLE');
   const [round, setRound] = useState(1);
-  const [target, setTarget] = useState(KEYWORD_ROUNDS[0]);
+  const [target, setTarget] = useState<KeywordRound | null>(null);
   const [pool, setPool] = useState<string[]>([]);
   const [selected, setSelected] = useState<string[]>([]);
   const [message, setMessage] = useState('');
   const [recorded, setRecorded] = useState(false);
 
   const startGame = () => {
-    const nextTarget = KEYWORD_ROUNDS[Math.floor(Math.random() * KEYWORD_ROUNDS.length)];
+    const nextTarget = createKeywordRound(animePool);
+    if (!nextTarget) return;
     setTarget(nextTarget);
     setPool(shuffle([...nextTarget.correct, ...nextTarget.decoys]));
     setSelected([]);
@@ -652,6 +680,7 @@ const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => v
   };
 
   const submit = () => {
+    if (!target) return;
     if (selected.length !== 3) {
       setMessage('先选择 3 个关键词。');
       return;
@@ -666,7 +695,8 @@ const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => v
       finish(true, 160 + (3 - round) * 30);
       return;
     }
-    const nextTarget = KEYWORD_ROUNDS[Math.floor(Math.random() * KEYWORD_ROUNDS.length)];
+    const nextTarget = createKeywordRound(animePool);
+    if (!nextTarget) return;
     setTarget(nextTarget);
     setPool(shuffle([...nextTarget.correct, ...nextTarget.decoys]));
     setSelected([]);
@@ -675,7 +705,7 @@ const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => v
   };
 
   if (status === 'IDLE') {
-    return <StartPanel title="关键词配对" text="每轮挑出 3 个最贴合作品气质的关键词，共 3 轮。无需 API。" action="开始" onStart={startGame} />;
+    return <StartPanel title="关键词配对" text={animePool.length ? '从你的年鉴和当前番表抽题，每轮挑出 3 个最贴合作品气质的关键词，共 3 轮。' : '先返回导视页加载番表，或收录几部作品后再来挑战。'} action={animePool.length ? '开始' : '等待题库'} onStart={startGame} disabled={!animePool.length} />;
   }
 
   return (
@@ -685,8 +715,8 @@ const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => v
         <div className="mx-auto max-w-2xl">
           <div className="rounded-3xl border border-rose-100 bg-white/85 p-6 text-center shadow-sm">
             <p className="text-xs font-black uppercase tracking-[0.22em] text-rose-400">Taste Radar</p>
-            <h4 className="mt-3 font-jp text-3xl font-black text-slate-900">{target.title}</h4>
-            <p className="mt-2 text-sm text-slate-500">{target.note}</p>
+            <h4 className="mt-3 font-jp text-3xl font-black text-slate-900">{target?.title}</h4>
+            <p className="mt-2 text-sm text-slate-500">{target?.note}</p>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
             {pool.map((keyword) => {
@@ -716,13 +746,169 @@ const KeywordMatchGame: React.FC<{ onResult: (win: boolean, points: number) => v
   );
 };
 
-const StartPanel: React.FC<{ title: string; text: string; action: string; onStart: () => void }> = ({ title, text, action, onStart }) => (
+const getPlayableAnime = (animePool: Anime[]) => uniqueAnime(animePool).filter((item) => Boolean(item.season && item.seasonYear && getAnimeTitle(item) !== '未命名作品'));
+
+const BroadcastSeasonGame: React.FC<{ animePool: Anime[]; onResult: (win: boolean, points: number) => void }> = ({ animePool, onResult }) => {
+  const [status, setStatus] = useState<GameStatus>('IDLE');
+  const [target, setTarget] = useState<Anime | null>(null);
+  const [options, setOptions] = useState<string[]>([]);
+  const [round, setRound] = useState(1);
+  const [message, setMessage] = useState('');
+  const [recorded, setRecorded] = useState(false);
+
+  const setQuestion = (nextRound: number) => {
+    const candidates = getPlayableAnime(animePool);
+    if (!candidates.length) return false;
+    const nextTarget = candidates[Math.floor(Math.random() * candidates.length)];
+    const correct = getSeasonLabel(nextTarget.season, nextTarget.seasonYear);
+    const fromLibrary = shuffle(candidates.filter((item) => String(item.id) !== String(nextTarget.id)).map((item) => getSeasonLabel(item.season, item.seasonYear)));
+    const fallback = shuffle((['WINTER', 'SPRING', 'SUMMER', 'FALL'] as Season[]).flatMap((season) => [nextTarget.seasonYear - 1, nextTarget.seasonYear + 1].map((year) => getSeasonLabel(season, year))));
+    const nextOptions = Array.from(new Set([correct, ...fromLibrary, ...fallback])).slice(0, 4);
+    setTarget(nextTarget);
+    setOptions(shuffle(nextOptions));
+    setRound(nextRound);
+    return true;
+  };
+
+  const startGame = () => {
+    if (!setQuestion(1)) return;
+    setMessage('');
+    setRecorded(false);
+    setStatus('PLAYING');
+  };
+
+  const choose = (value: string) => {
+    if (!target || status !== 'PLAYING') return;
+    const correct = value === getSeasonLabel(target.season, target.seasonYear);
+    if (!correct) {
+      setMessage(`答案是 ${getSeasonLabel(target.season, target.seasonYear)}。`);
+      setStatus('LOSE');
+      if (!recorded) {
+        setRecorded(true);
+        onResult(false, -10);
+      }
+      return;
+    }
+    if (round === 3) {
+      setMessage('记忆准确，时间轴校对完成。');
+      setStatus('WIN');
+      if (!recorded) {
+        setRecorded(true);
+        onResult(true, 150);
+      }
+      return;
+    }
+    setMessage('正确，下一条放送记录。');
+    setQuestion(round + 1);
+  };
+
+  if (status === 'IDLE') {
+    const ready = getPlayableAnime(animePool).length > 0;
+    return <StartPanel title="放送季猜测" text={ready ? '从你的年鉴和当前番表随机抽取 3 部作品，选出它最初播出的季度。' : '先加载番表，社团的放送记录才会出现。'} action={ready ? '开始' : '等待题库'} onStart={startGame} disabled={!ready} />;
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-gradient-to-b from-white/70 to-amber-50/70">
+      <GameTopBar left={`Round ${round}/3`} right="选择播出季度" />
+      <div className="flex min-h-0 flex-1 flex-col justify-center p-6">
+        <div className="mx-auto w-full max-w-2xl rounded-3xl border border-amber-100 bg-white/85 p-6 text-center shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-500">Broadcast Ledger</p>
+          <h4 className="mt-3 font-jp text-3xl font-black text-slate-900">{target ? getAnimeTitle(target) : ''}</h4>
+          <p className="mt-3 text-sm text-slate-500">它最初出现在哪个季度？</p>
+        </div>
+        <div className="mx-auto mt-5 grid w-full max-w-2xl grid-cols-2 gap-3">
+          {options.map((option) => <button key={option} onClick={() => choose(option)} disabled={status !== 'PLAYING'} className="min-h-20 rounded-2xl border border-amber-100 bg-white px-3 text-sm font-black text-slate-700 shadow-sm transition hover:border-amber-300 hover:bg-amber-50 disabled:opacity-60">{option}</button>)}
+        </div>
+        <p className={`mt-5 min-h-6 text-center text-sm font-bold ${status === 'WIN' ? 'text-emerald-600' : status === 'LOSE' ? 'text-rose-500' : 'text-slate-500'}`}>{message}</p>
+      </div>
+      {status === 'PLAYING' ? null : <ReplayBar onReplay={startGame} />}
+    </div>
+  );
+};
+
+const DossierGame: React.FC<{ animePool: Anime[]; onResult: (win: boolean, points: number) => void }> = ({ animePool, onResult }) => {
+  const [status, setStatus] = useState<GameStatus>('IDLE');
+  const [target, setTarget] = useState<Anime | null>(null);
+  const [options, setOptions] = useState<Anime[]>([]);
+  const [round, setRound] = useState(1);
+  const [message, setMessage] = useState('');
+  const [recorded, setRecorded] = useState(false);
+
+  const setQuestion = (nextRound: number) => {
+    const candidates = getPlayableAnime(animePool);
+    if (candidates.length < 4) return false;
+    const nextTarget = candidates[Math.floor(Math.random() * candidates.length)];
+    setTarget(nextTarget);
+    setOptions(shuffle([nextTarget, ...shuffle(candidates.filter((item) => String(item.id) !== String(nextTarget.id))).slice(0, 3)]));
+    setRound(nextRound);
+    return true;
+  };
+
+  const startGame = () => {
+    if (!setQuestion(1)) return;
+    setMessage('');
+    setRecorded(false);
+    setStatus('PLAYING');
+  };
+
+  const choose = (anime: Anime) => {
+    if (!target || status !== 'PLAYING') return;
+    if (String(anime.id) !== String(target.id)) {
+      setMessage(`答案是：${getAnimeTitle(target)}。`);
+      setStatus('LOSE');
+      if (!recorded) {
+        setRecorded(true);
+        onResult(false, -10);
+      }
+      return;
+    }
+    if (round === 3) {
+      setMessage('资料卡核验完成，社团档案无误。');
+      setStatus('WIN');
+      if (!recorded) {
+        setRecorded(true);
+        onResult(true, 170);
+      }
+      return;
+    }
+    setMessage('核对正确，下一张资料卡。');
+    setQuestion(round + 1);
+  };
+
+  if (status === 'IDLE') {
+    const ready = getPlayableAnime(animePool).length >= 4;
+    return <StartPanel title="资料卡辨认" text={ready ? '只看档案元数据，在四个标题中找出对应作品，连续完成 3 张资料卡。' : '这项挑战至少需要 4 部当前或已收录作品。'} action={ready ? '开始' : '等待题库'} onStart={startGame} disabled={!ready} />;
+  }
+
+  return (
+    <div className="flex h-full flex-col bg-gradient-to-b from-white/70 to-emerald-50/70">
+      <GameTopBar left={`Round ${round}/3`} right="核对资料卡" />
+      <div className="min-h-0 flex-1 overflow-y-auto p-6">
+        <div className="mx-auto max-w-2xl">
+          <div className="rounded-3xl border border-emerald-100 bg-white/85 p-6 text-center shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">Archive Dossier</p>
+            <p className="mt-4 text-lg font-medium text-slate-800">{target ? `${target.seasonYear} · ${SEASON_CN[target.season].split(' ')[0]}` : ''}</p>
+            <p className="mt-2 text-sm text-slate-500">{target?.genres.slice(0, 3).join(' · ') || '题材资料整理中'}</p>
+            <p className="mt-2 text-xs text-slate-400">{target?.format || 'TV'}</p>
+          </div>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {options.map((option) => <button key={option.id} onClick={() => choose(option)} disabled={status !== 'PLAYING'} className="min-h-[4.5rem] rounded-2xl border border-emerald-100 bg-white px-4 py-4 text-left text-sm font-black text-slate-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50 disabled:opacity-60">{getAnimeTitle(option)}</button>)}
+          </div>
+          <p className={`mt-5 min-h-6 text-center text-sm font-bold ${status === 'WIN' ? 'text-emerald-600' : status === 'LOSE' ? 'text-rose-500' : 'text-slate-500'}`}>{message}</p>
+        </div>
+      </div>
+      {status === 'PLAYING' ? null : <ReplayBar onReplay={startGame} />}
+    </div>
+  );
+};
+
+const StartPanel: React.FC<{ title: string; text: string; action: string; onStart: () => void; disabled?: boolean }> = ({ title, text, action, onStart, disabled = false }) => (
   <div className="flex h-full items-center justify-center p-6">
     <div className="w-full max-w-md rounded-3xl border border-sky-100 bg-white/80 p-8 text-center shadow-sm">
       <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">Mission</p>
       <h4 className="mt-3 font-jp text-3xl font-black text-slate-900">{title}</h4>
       <p className="mt-4 text-sm leading-7 text-slate-500">{text}</p>
-      <button onClick={onStart} className="mt-8 rounded-2xl bg-sky-500 px-8 py-3 text-sm font-black text-white shadow-lg shadow-sky-100 transition hover:bg-sky-600">
+      <button disabled={disabled} onClick={onStart} className="mt-8 rounded-2xl bg-sky-500 px-8 py-3 text-sm font-black text-white shadow-lg shadow-sky-100 transition hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-45">
         {action}
       </button>
     </div>

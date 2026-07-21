@@ -1,5 +1,8 @@
 import React from 'react';
-import seasonalSky from '../../pics/seasonal-sky-editorial.webp';
+import winterSky from '../../pics/season-winter.webp';
+import springSky from '../../pics/season-spring.webp';
+import summerSky from '../../pics/season-summer.webp';
+import autumnSky from '../../pics/season-autumn.webp';
 import { Season, SEASONS, SEASON_CN } from '../../types';
 
 interface SeasonalHeroProps {
@@ -17,13 +20,21 @@ const copy: Record<Season, { title: string; description: string }> = {
   FALL: { title: '秋天的片段', description: '叶色渐深，把每次告别和重逢都收进年鉴。' }
 };
 
+const seasonalArt: Record<Season, { src: string; alt: string }> = {
+  WINTER: { src: winterSky, alt: '水彩冬日屋檐、羽毛与雪点' },
+  SPRING: { src: springSky, alt: '水彩春日花枝、青鸟与远景屋檐' },
+  SUMMER: { src: summerSky, alt: '水彩夏日草坡、青鸟与晴空' },
+  FALL: { src: autumnSky, alt: '水彩秋叶、青鸟与远景屋檐' }
+};
+
 export const SeasonalHero: React.FC<SeasonalHeroProps> = ({ year, season, total, selectedCount, onSeasonChange }) => {
   const seasonCopy = copy[season];
   const seasonName = SEASON_CN[season].split(' ')[0];
+  const art = seasonalArt[season];
 
   return (
     <section aria-labelledby="season-title" className="relative overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/70 bg-yearbook-surface shadow-[var(--ah-shadow-soft)]">
-      <img key={season} src={seasonalSky} alt="水彩天空、青鸟与春日花枝" className="absolute inset-0 h-full w-full object-cover ah-entry" />
+      <img key={season} src={art.src} alt={art.alt} className="absolute inset-0 h-full w-full object-cover ah-entry" />
       <div className="absolute inset-0 bg-gradient-to-r from-white/94 via-white/72 to-white/12" />
       <div className="relative grid min-h-[320px] content-between px-6 py-7 sm:px-9 md:min-h-[350px] md:px-12 md:py-10">
         <div className="max-w-xl">

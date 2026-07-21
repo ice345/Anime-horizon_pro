@@ -315,7 +315,7 @@ export default function App() {
       <Suspense fallback={null}>
         {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} />}
         {isSqlModalOpen && <SqlExportModal isOpen={isSqlModalOpen} onClose={() => setIsSqlModalOpen(false)} selectedAnime={Array.from(selectedAnimeDetails.values())} />}
-        {isGameOpen && <GameModal isOpen={isGameOpen} onClose={() => setIsGameOpen(false)} />}
+        {isGameOpen && <GameModal isOpen={isGameOpen} onClose={() => setIsGameOpen(false)} animePool={[...selectedAnimeDetails.values(), ...animeList]} />}
         {isTasteQuizOpen && <TasteQuizModal isOpen={isTasteQuizOpen} onClose={() => setIsTasteQuizOpen(false)} onSubmit={handleTasteQuizSubmit} />}
         {isSettingsOpen && (
           <SettingsModal

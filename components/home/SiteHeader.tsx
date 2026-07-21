@@ -59,9 +59,8 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
 
         <nav aria-label="主导航" className="hidden items-center gap-6 md:flex">
           <button type="button" onClick={() => handleAction(() => onNavigate('guide'))} className={navItemClass(activeView === 'guide')}>首页</button>
-          <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className={navItemClass(activeView === 'record')}>年鉴</button>
+          <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className={navItemClass(activeView === 'record')}>我的年鉴</button>
           <button type="button" onClick={() => handleAction(onShowFeatured)} className={navItemClass(false)}>推荐</button>
-          <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className={navItemClass(false)}>我的</button>
         </nav>
 
         <div className="relative flex items-center gap-1">
@@ -90,7 +89,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
         <nav aria-label="移动端主导航" className="border-t border-yearbook-line bg-yearbook-surface px-5 py-3 md:hidden">
           <div className="grid grid-cols-2 gap-1">
             <button type="button" onClick={() => handleAction(() => onNavigate('guide'))} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">首页</button>
-            <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">年鉴</button>
+            <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">我的年鉴</button>
             <button type="button" onClick={() => handleAction(onShowFeatured)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">推荐</button>
             <button type="button" onClick={() => handleAction(onOpenTaste)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">偏好画像</button>
             <button type="button" onClick={() => handleAction(onOpenGame)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">小游戏</button>
