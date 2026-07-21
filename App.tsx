@@ -1,23 +1,22 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { AnalysisModal } from './components/AnalysisModal';
-import { SqlExportModal } from './components/SqlExportModal';
-import { SettingsModal } from './components/SettingsModal';
-import { GameModal } from './components/GameModal';
-import { TasteQuizModal } from './components/TasteQuizModal';
+import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { GuidePage } from './components/GuidePage';
 import { SeasonSection } from './components/SeasonSection';
-import { analyzeAnimeTaste } from './services/geminiService';
+import { DecorativeBackground } from './components/home/DecorativeBackground';
+import { SiteHeader } from './components/home/SiteHeader';
+import { YearNavigation } from './components/home/YearNavigation';
 import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
+import { analyzeAnimeTaste } from './services/geminiService';
 import { Anime, OtakuRank, Season, SEASONS, SEASON_ORDER } from './types';
-import lizuHero from './pics/LizuToAoiTori_sora.png';
 
+const AnalysisModal = lazy(() => import('./components/AnalysisModal').then(({ AnalysisModal: Component }) => ({ default: Component })));
+const SqlExportModal = lazy(() => import('./components/SqlExportModal').then(({ SqlExportModal: Component }) => ({ default: Component })));
+const GameModal = lazy(() => import('./components/GameModal').then(({ GameModal: Component }) => ({ default: Component })));
+const TasteQuizModal = lazy(() => import('./components/TasteQuizModal').then(({ TasteQuizModal: Component }) => ({ default: Component })));
+const SettingsModal = lazy(() => import('./components/SettingsModal').then(({ SettingsModal: Component }) => ({ default: Component })));
 
-// --- DYNAMIC YEAR GENERATION ---
-// Automatically calculates the current year and allows looking ahead
-const CURRENT_DATE = new Date();
-const CURRENT_REAL_YEAR = CURRENT_DATE.getFullYear();
-const MAX_LOOKAHEAD = 1; // Always show 1 year into the future for upcoming anime
-const DEFAULT_START_YEAR = 2000; // Extend history back to 2000
+const CURRENT_REAL_YEAR = new Date().getFullYear();
+const MAX_LOOKAHEAD = 1;
+const DEFAULT_START_YEAR = 2000;
 const DEFAULT_END_YEAR = CURRENT_REAL_YEAR + MAX_LOOKAHEAD;
 
 const getCurrentSeason = (): Season => {
@@ -31,8 +30,17 @@ const getCurrentSeason = (): Season => {
 const buildYears = (start: number, end: number) => {
   const safeStart = Math.max(DEFAULT_START_YEAR, Math.min(start, DEFAULT_END_YEAR));
   const safeEnd = Math.max(safeStart, Math.min(end, DEFAULT_END_YEAR));
-  const length = safeEnd - safeStart + 1;
-  return Array.from({ length }, (_, i) => safeEnd - i);
+  return Array.from({ length: safeEnd - safeStart + 1 }, (_, index) => safeEnd - index);
+};
+
+const getRank = (count: number): OtakuRank => {
+  if (count === 0) return '现充';
+  if (count < 8) return '路人';
+  if (count < 25) return '动画爱好者';
+  if (count < 70) return '老二次元';
+  if (count < 150) return '萌豚';
+  if (count < 300) return '婆罗门';
+  return '动漫之神';
 };
 
 export default function App() {
@@ -43,104 +51,65 @@ export default function App() {
       const raw = localStorage.getItem('anime-horizon-year-range');
       if (!raw) return fallback;
       const parsed = JSON.parse(raw);
-      const start = Number(parsed.start) || DEFAULT_START_YEAR;
-      const end = Number(parsed.end) || DEFAULT_END_YEAR;
-      const normalized = buildYears(start, end);
+      const normalized = buildYears(Number(parsed.start) || DEFAULT_START_YEAR, Number(parsed.end) || DEFAULT_END_YEAR);
       return { start: normalized[normalized.length - 1], end: normalized[0] };
-    } catch (e) {
-      console.warn('Failed to load year range from storage', e);
+    } catch {
       return fallback;
     }
   };
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map());
-  const [route, setRoute] = useState<'guide' | 'record'>(() => window.location.pathname === '/guide' ? 'guide' : 'record');
+  const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map<string, Anime>());
+  const [route, setRoute] = useState<'guide' | 'record'>(() => window.location.pathname === '/archive' ? 'record' : 'guide');
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(loadSavedYearRange);
   const years = useMemo(() => buildYears(yearRange.start, yearRange.end), [yearRange]);
-  const [activeYear, setActiveYear] = useState<number>(() => {
-    const current = CURRENT_REAL_YEAR;
-    if (current >= yearRange.start && current <= yearRange.end) return current;
-    return yearRange.end;
-  });
-  
+  const [activeYear, setActiveYear] = useState(() => Math.min(DEFAULT_END_YEAR, Math.max(DEFAULT_START_YEAR, CURRENT_REAL_YEAR)));
   const [animeList, setAnimeList] = useState<Anime[]>([]);
   const [loadedSeasons, setLoadedSeasons] = useState<Set<string>>(new Set());
   const [loadingSeasons, setLoadingSeasons] = useState<Set<string>>(new Set());
   const requestVersionRef = useRef(0);
 
-  // Modals
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isGameOpen, setIsGameOpen] = useState(false);
   const [isTasteQuizOpen, setIsTasteQuizOpen] = useState(false);
-  
-  // Analysis
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisData, setAnalysisData] = useState<any>(null);
   const [quickTasteProfile, setQuickTasteProfile] = useState<{ inputs: string[]; rank: OtakuRank } | null>(null);
-
-  // Config
   const [itemsPerSeason, setItemsPerSeason] = useState(20);
-  
-  // Ref for horizontal scroll
-  const navRef = useRef<HTMLDivElement>(null);
-  
-  // Rank Calculation Logic
-  const getRank = (count: number): OtakuRank => {
-    if (count === 0) return '现充';
-    if (count < 8) return '路人';
-    if (count < 25) return '动画爱好者';
-    if (count < 70) return '老二次元';
-    if (count < 150) return '萌豚';
-    if (count < 300) return '婆罗门';
-    return '动漫之神';
-  };
 
-
-  // Load from local storage (User Selection)
   useEffect(() => {
-    const saved = localStorage.getItem('anime-horizon-selected-v3'); 
-    const savedDetails = localStorage.getItem('anime-horizon-details-v3');
-    if (saved) {
-      setSelectedIds(new Set(JSON.parse(saved)));
-    }
-    if (savedDetails) {
-        // Hydrate map from JSON array
-        const detailsArray = JSON.parse(savedDetails) as Anime[];
-        const map = new Map();
-        detailsArray.forEach(a => map.set(String(a.id), a));
-        setSelectedAnimeDetails(map);
+    try {
+      const saved = localStorage.getItem('anime-horizon-selected-v3');
+      const savedDetails = localStorage.getItem('anime-horizon-details-v3');
+      if (saved) setSelectedIds(new Set(JSON.parse(saved)));
+      if (savedDetails) {
+        const details = JSON.parse(savedDetails) as Anime[];
+        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), anime])));
+      }
+    } catch (error) {
+      console.warn('Failed to restore local archive', error);
     }
   }, []);
 
-  // Save to local storage
   useEffect(() => {
     localStorage.setItem('anime-horizon-selected-v3', JSON.stringify(Array.from(selectedIds)));
     localStorage.setItem('anime-horizon-details-v3', JSON.stringify(Array.from(selectedAnimeDetails.values())));
   }, [selectedIds, selectedAnimeDetails]);
 
-  // Persist year range
   useEffect(() => {
     localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
-  }, [yearRange]);
-
-  // Keep active year within range
-  useEffect(() => {
-    if (activeYear < yearRange.start || activeYear > yearRange.end) {
-      setActiveYear(yearRange.end);
-    }
-  }, [yearRange, activeYear]);
+    if (activeYear < yearRange.start || activeYear > yearRange.end) setActiveYear(yearRange.end);
+  }, [activeYear, yearRange]);
 
   const navigate = (nextRoute: 'guide' | 'record') => {
-    const path = nextRoute === 'guide' ? '/guide' : '/';
-    window.history.pushState({}, '', path);
+    window.history.pushState({}, '', nextRoute === 'record' ? '/archive' : '/');
     setRoute(nextRoute);
   };
 
   useEffect(() => {
-    const handlePopState = () => setRoute(window.location.pathname === '/guide' ? 'guide' : 'record');
+    const handlePopState = () => setRoute(window.location.pathname === '/archive' ? 'record' : 'guide');
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
@@ -148,19 +117,18 @@ export default function App() {
   const loadSeason = async (year: number, season: Season, limit: number, force = false) => {
     const key = `${year}-${season}-${limit}`;
     if (!force && (loadedSeasons.has(key) || loadingSeasons.has(key))) return;
-
     const requestVersion = requestVersionRef.current;
-    setLoadingSeasons((prev) => new Set(prev).add(key));
+    setLoadingSeasons((previous) => new Set(previous).add(key));
     try {
       const data = await fetchAnimeBySeason(year, season, limit);
       if (requestVersion !== requestVersionRef.current) return;
-      setAnimeList((prev) => [...prev.filter((item) => item.season !== season), ...data].sort((a, b) => SEASON_ORDER[a.season] - SEASON_ORDER[b.season]));
-      setLoadedSeasons((prev) => new Set(prev).add(key));
+      setAnimeList((previous) => [...previous.filter((item) => item.season !== season), ...data].sort((left, right) => SEASON_ORDER[left.season] - SEASON_ORDER[right.season]));
+      setLoadedSeasons((previous) => new Set(previous).add(key));
     } catch (error) {
       console.error(`Failed to fetch ${year} ${season}:`, error);
     } finally {
-      setLoadingSeasons((prev) => {
-        const next = new Set(prev);
+      setLoadingSeasons((previous) => {
+        const next = new Set(previous);
         next.delete(key);
         return next;
       });
@@ -173,11 +141,6 @@ export default function App() {
     setLoadedSeasons(new Set());
     void loadSeason(activeYear, getCurrentSeason(), itemsPerSeason);
   }, [activeYear, itemsPerSeason]);
-
-  // Handle configuration change re-fetch
-  const handleConfigChange = (newLimit: number) => {
-    setItemsPerSeason(newLimit);
-  };
 
   const handleYearRangeChange = (start: number, end: number) => {
     const normalized = buildYears(start, end);
@@ -202,97 +165,65 @@ export default function App() {
     localStorage.removeItem('anime-horizon-details-v3');
   };
 
-  // Export all current cached data + selection
   const handleExportJson = () => {
     const exportData = {
       version: 1,
       timestamp: new Date().toISOString(),
-      config: { 
-        itemsPerSeason,
-        startYear: yearRange.start,
-        endYear: yearRange.end
-      },
+      config: { itemsPerSeason, startYear: yearRange.start, endYear: yearRange.end },
       userSelection: Array.from(selectedIds),
       userDetails: Array.from(selectedAnimeDetails.values()),
-      // Note: We only export the currently loaded year + user selection to avoid massive files, 
-      // or we could iterate cache if we exposed it. For now, let's export selection + current year.
       currentViewData: animeList
     };
-    
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `anime_horizon_backup_${new Date().toISOString().slice(0,10)}.json`;
-    a.click();
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `anime_horizon_backup_${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
     URL.revokeObjectURL(url);
   };
 
-  // Import JSON
   const handleImportJson = (file: File) => {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = (event) => {
       try {
-        const json = JSON.parse(e.target?.result as string);
+        const json = JSON.parse(event.target?.result as string);
         if (json.userSelection) setSelectedIds(new Set(json.userSelection));
-        if (json.userDetails) {
-            const map = new Map();
-            json.userDetails.forEach((a: Anime) => map.set(String(a.id), a));
-            setSelectedAnimeDetails(map);
-        }
+        if (json.userDetails) setSelectedAnimeDetails(new Map(json.userDetails.map((anime: Anime) => [String(anime.id), anime])));
         if (json.config?.itemsPerSeason) setItemsPerSeason(json.config.itemsPerSeason);
-        if (json.config?.startYear && json.config?.endYear) {
-          handleYearRangeChange(json.config.startYear, json.config.endYear);
-        }
-        
-        // If import has current view data, load it to avoid fetch
-        if (json.currentViewData) {
-            setAnimeList(json.currentViewData);
-        }
-        
+        if (json.config?.startYear && json.config?.endYear) handleYearRangeChange(json.config.startYear, json.config.endYear);
+        if (json.currentViewData) setAnimeList(json.currentViewData);
         setIsSettingsOpen(false);
-        alert("数据加载成功！");
-      } catch (err) {
-        alert("文件格式错误");
+        window.alert('数据加载成功！');
+      } catch {
+        window.alert('文件格式错误');
       }
     };
     reader.readAsText(file);
   };
 
   const toggleAnime = (id: string, anime: Anime) => {
-    const next = new Set(selectedIds);
-    const detailsNext = new Map(selectedAnimeDetails);
-
-    if (next.has(id)) {
-      next.delete(id);
-      detailsNext.delete(id);
+    const nextIds = new Set(selectedIds);
+    const nextDetails = new Map(selectedAnimeDetails);
+    if (nextIds.has(id)) {
+      nextIds.delete(id);
+      nextDetails.delete(id);
     } else {
-      next.add(id);
-      detailsNext.set(id, anime);
+      nextIds.add(id);
+      nextDetails.set(id, anime);
     }
-    setSelectedIds(next);
-    setSelectedAnimeDetails(detailsNext);
+    setSelectedIds(nextIds);
+    setSelectedAnimeDetails(nextDetails);
   };
 
   const seasonalAnime = useMemo(() => {
-    const grouped: Record<Season, Anime[]> = {
-      WINTER: [],
-      SPRING: [],
-      SUMMER: [],
-      FALL: []
-    };
-    animeList.forEach(a => {
-      if (grouped[a.season]) grouped[a.season].push(a);
-    });
+    const grouped: Record<Season, Anime[]> = { WINTER: [], SPRING: [], SUMMER: [], FALL: [] };
+    animeList.forEach((anime) => grouped[anime.season]?.push(anime));
     return grouped;
   }, [animeList]);
 
   const rank = getRank(selectedIds.size);
   const displayedRank = quickTasteProfile?.rank || rank;
-  const displayEndYear = years[0] || yearRange.end;
-  const displayStartYear = years[years.length - 1] || yearRange.start;
-  const minSelectableYear = DEFAULT_START_YEAR;
-  const maxSelectableYear = DEFAULT_END_YEAR;
 
   const handleAnalyze = async (override?: { inputs: string[]; rank: OtakuRank }) => {
     const profile = override || quickTasteProfile;
@@ -304,21 +235,15 @@ export default function App() {
     if (!analysisData || override) {
       setIsAnalyzing(true);
       try {
-        let titles: string[] = [];
-        if (profile?.inputs?.length) {
-          titles = profile.inputs;
-        } else {
-          selectedAnimeDetails.forEach(a => {
-             titles.push(`${a.title.native || a.title.romaji} (${a.seasonYear})`);
-          });
-        }
-        if (titles.length === 0 && selectedIds.size > 0) titles = ["(用户数据缓存已清除，仅基于数量分析)"];
-        const sampleTitles = titles.sort(() => 0.5 - Math.random()).slice(0, 40);
-        const result = await analyzeAnimeTaste(sampleTitles, profile?.rank || rank);
+        const archiveTitles = (Array.from(selectedAnimeDetails.values()) as Anime[])
+          .map((anime) => `${anime.title.native || anime.title.romaji} (${anime.seasonYear})`);
+        const titles = profile?.inputs?.length ? profile.inputs : archiveTitles;
+        const sourceTitles = titles.length ? titles : ['(用户数据缓存已清除，仅基于数量分析)'];
+        const result = await analyzeAnimeTaste(sourceTitles.sort(() => 0.5 - Math.random()).slice(0, 40), profile?.rank || rank);
         setAnalysisData(result);
-      } catch (e) {
-        console.error(e);
-        setAnalysisData({ roast: "AI 通信失败", personality: "未知", recommendations: [] });
+      } catch (error) {
+        console.error(error);
+        setAnalysisData({ roast: 'AI 通信失败', personality: '未知', recommendations: [] });
       } finally {
         setIsAnalyzing(false);
       }
@@ -329,283 +254,87 @@ export default function App() {
     setQuickTasteProfile(profile);
     setAnalysisData(null);
     setIsTasteQuizOpen(false);
-    handleAnalyze(profile);
+    void handleAnalyze(profile);
   };
 
-  // Drag scrolling for Nav
-  const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
-  const [scrollLeft, setScrollLeft] = useState(0);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!navRef.current) return;
-    setIsDragging(true);
-    setStartX(e.pageX - navRef.current.offsetLeft);
-    setScrollLeft(navRef.current.scrollLeft);
+  const scrollToGuideSection = (id: string) => {
+    if (route !== 'guide') navigate('guide');
+    window.setTimeout(() => document.getElementById(id)?.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }), 40);
   };
-  const handleMouseLeave = () => setIsDragging(false);
-  const handleMouseUp = () => setIsDragging(false);
-  const handleMouseMove = (e: React.MouseEvent) => {
-    if (!isDragging || !navRef.current) return;
-    e.preventDefault();
-    const x = e.pageX - navRef.current.offsetLeft;
-    const walk = (x - startX) * 2;
-    navRef.current.scrollLeft = scrollLeft - walk;
+
+  const focusSearch = () => {
+    scrollToGuideSection('catalogue');
+    window.setTimeout(() => document.getElementById('anime-search')?.focus(), 180);
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden pb-32 font-sans text-slate-800 selection:bg-anime-accent selection:text-white">
-      
-      {/* Dynamic Background Elements */}
-      <div className="fixed inset-0 pointer-events-none z-0">
-         <div className="absolute inset-0 bg-gradient-to-b from-sky-50 via-[#f8fcff] to-rose-50"></div>
-         <div
-           className="absolute inset-x-0 top-0 h-[520px] bg-cover bg-center opacity-35"
-           style={{ backgroundImage: `url(${lizuHero})` }}
-         ></div>
-         <div className="absolute inset-0 bg-[linear-gradient(rgba(14,116,144,0.06)_1px,transparent_1px)] bg-[size:100%_32px] opacity-80"></div>
-         <div className="absolute inset-0 bg-gradient-to-b from-white/25 via-white/72 to-white"></div>
-      </div>
+    <div className="ah-shell relative overflow-hidden font-sans text-yearbook-ink">
+      <DecorativeBackground />
+      <SiteHeader
+        activeView={route}
+        onNavigate={navigate}
+        onShowFeatured={() => scrollToGuideSection('featured')}
+        onSearch={focusSearch}
+        onOpenTaste={() => setIsTasteQuizOpen(true)}
+        onOpenGame={() => setIsGameOpen(true)}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenExport={() => setIsSqlModalOpen(true)}
+      />
+      <YearNavigation years={years} activeYear={activeYear} onSelect={setActiveYear} onOpenSettings={() => setIsSettingsOpen(true)} />
 
-      {/* Header */}
-      <header className="relative z-10 px-6 pb-12 pt-16 text-center">
-        
-        {/* Top Right Controls */}
-        <div className="absolute top-6 right-6 flex gap-2 z-50">
-          <button 
-             onClick={() => setIsTasteQuizOpen(true)}
-             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
-             title="填写偏好画像"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 18h6m-8 3h10M7 3h10l2 7-7 4-7-4 2-7z" />
-            </svg>
-          </button>
-          <button 
-             onClick={() => setIsGameOpen(true)}
-             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
-             title="Mini Game"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 5v2m0 4v2m0 4v2M5 5a2 2 0 00-2 2v3a2 2 0 110 4v3a2 2 0 002 2h14a2 2 0 002-2v-3a2 2 0 110-4V7a2 2 0 00-2-2H5z" />
-            </svg>
-          </button>
-
-          <button 
-             onClick={() => setIsSettingsOpen(true)}
-             className="rounded-full bg-white/70 p-2 text-sky-500 shadow-sm ring-1 ring-sky-100 transition-all hover:bg-white hover:text-sky-700"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-          </button>
-        </div>
-
-        <h1 className="relative mb-2 inline-block font-jp text-4xl font-black tracking-normal text-slate-900 md:text-6xl">
-          <span className="relative drop-shadow-[0_10px_30px_rgba(14,116,144,0.16)]">
-             ANIME <span className="bg-gradient-to-r from-sky-500 via-cyan-400 to-rose-400 bg-clip-text text-transparent">HORIZON</span>
-          </span>
-        </h1>
-        <div className="flex items-center justify-center gap-4 mt-3">
-          <div className="h-px w-12 bg-gradient-to-r from-transparent to-sky-200"></div>
-          <p className="text-xs md:text-sm text-sky-700 font-bold tracking-[0.3em] uppercase opacity-80">
-            Chronicles {displayEndYear} - {displayStartYear}
-          </p>
-          <div className="h-px w-12 bg-gradient-to-l from-transparent to-rose-200"></div>
-        </div>
-        <p className="mx-auto mt-5 max-w-2xl text-sm leading-7 text-slate-500 md:text-base">
-          新番导视、补番记录、偏好测评、小游戏。
-        </p>
-      </header>
-
-      {/* Sticky Year Navigation */}
-      <nav className="sticky top-0 z-40 border-y border-sky-100/80 bg-white/75 backdrop-blur-md">
-        <div 
-          ref={navRef}
-          className="w-full overflow-x-auto scrollbar-hide py-3 cursor-grab active:cursor-grabbing"
-          onMouseDown={handleMouseDown}
-          onMouseLeave={handleMouseLeave}
-          onMouseUp={handleMouseUp}
-          onMouseMove={handleMouseMove}
-        >
-          <div className="flex px-6 w-max mx-auto md:mx-0">
-            {years.map(year => (
-              <button
-                key={year}
-                onClick={() => setActiveYear(year)}
-                className={`
-                  relative px-5 py-1.5 mx-1 rounded-full text-sm font-bold transition-all duration-300 select-none
-                  ${activeYear === year 
-                    ? 'bg-sky-500 text-white shadow-[0_8px_24px_rgba(14,165,233,0.24)] scale-105' 
-                    : 'text-slate-500 hover:text-sky-700 hover:bg-sky-50'}
-                `}
-              >
-                {year}
-                {year > CURRENT_REAL_YEAR && (
-                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-anime-highlight opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-anime-highlight"></span>
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-        <div className="mx-auto flex max-w-[1800px] flex-col gap-3 border-t border-sky-100/80 px-4 py-3 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-2">
-            <button onClick={() => navigate('guide')} className={`rounded-xl px-4 py-2 text-sm font-black transition ${route === 'guide' ? 'bg-sky-500 text-white' : 'text-slate-500 hover:bg-sky-50 hover:text-sky-700'}`}>
-              新番导视
-            </button>
-            <button onClick={() => navigate('record')} className={`rounded-xl px-4 py-2 text-sm font-black transition ${route === 'record' ? 'bg-sky-50 text-sky-700' : 'text-slate-500 hover:bg-sky-50 hover:text-sky-700'}`}>
-              我的记录
-            </button>
-          </div>
-          <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-slate-500">
-            <label className="flex items-center gap-2">
-              年份范围
-              <select value={yearRange.start} onChange={(event) => handleYearRangeChange(Number(event.target.value), yearRange.end)} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
-                {Array.from({ length: maxSelectableYear - minSelectableYear + 1 }, (_, index) => maxSelectableYear - index).map((year) => <option key={`top-start-${year}`} value={year}>{year}</option>)}
-              </select>
-              <span>至</span>
-              <select value={yearRange.end} onChange={(event) => handleYearRangeChange(yearRange.start, Number(event.target.value))} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
-                {Array.from({ length: maxSelectableYear - minSelectableYear + 1 }, (_, index) => maxSelectableYear - index).map((year) => <option key={`top-end-${year}`} value={year}>{year}</option>)}
-              </select>
-            </label>
-            <label className="flex items-center gap-2">
-              每季
-              <select value={itemsPerSeason} onChange={(event) => handleConfigChange(Number(event.target.value))} className="rounded-lg border border-sky-100 bg-white px-2 py-1.5 text-slate-700 outline-none">
-                {[10, 15, 20, 25, 30, 40, 50].map((count) => <option key={count} value={count}>{count} 部</option>)}
-              </select>
-            </label>
-            <button onClick={() => setIsSettingsOpen(true)} className="rounded-lg border border-sky-100 bg-white px-3 py-1.5 text-sky-700 transition hover:bg-sky-50">
-              数据设置
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      {/* Main Content Area */}
       {route === 'guide' ? (
-        <GuidePage year={activeYear} itemsPerSeason={itemsPerSeason} selectedIds={selectedIds} onToggle={toggleAnime} />
+        <GuidePage
+          year={activeYear}
+          itemsPerSeason={itemsPerSeason}
+          selectedIds={selectedIds}
+          selectedAnime={Array.from(selectedAnimeDetails.values())}
+          rank={displayedRank}
+          onToggle={toggleAnime}
+          onOpenArchive={() => navigate('record')}
+          onAnalyze={() => void handleAnalyze()}
+          onOpenGame={() => setIsGameOpen(true)}
+          onOpenTaste={() => setIsTasteQuizOpen(true)}
+        />
       ) : (
-        <main className="relative z-10 mx-auto min-h-[60vh] max-w-[1800px] px-4 py-8">
-          <div className="mb-8 rounded-3xl border border-sky-100 bg-white/65 px-5 py-4 shadow-sm">
-            <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">My Archive / {activeYear}</p>
-                <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">我的观看记录</h2>
-              </div>
-              <p className="text-sm text-slate-500">向下浏览时，季度数据会自动加载</p>
+        <main className="relative z-10 mx-auto max-w-[var(--ah-page-width)] px-5 pb-16 pt-10 md:px-8">
+          <section className="mb-12 border-b border-yearbook-line pb-6 sm:flex sm:items-end sm:justify-between">
+            <div>
+              <p className="ah-section-label">My Archive / {activeYear}</p>
+              <h1 className="mt-3 font-jp text-4xl font-medium text-yearbook-ink">我的动画年鉴</h1>
+              <p className="mt-3 text-sm leading-6 text-yearbook-muted">按季度回看，也可以继续把刚遇见的作品收入这一年。</p>
             </div>
-          </div>
+            <button type="button" onClick={() => navigate('guide')} className="mt-5 text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink sm:mt-0">返回本季导视</button>
+          </section>
           {SEASONS.map((season) => {
             const key = `${activeYear}-${season}-${itemsPerSeason}`;
-            return (
-              <SeasonSection
-                key={season}
-                season={season}
-                anime={seasonalAnime[season]}
-                loading={loadingSeasons.has(key)}
-                loaded={loadedSeasons.has(key)}
-                selectedIds={selectedIds}
-                onToggle={toggleAnime}
-                onVisible={(visibleSeason) => void loadSeason(activeYear, visibleSeason, itemsPerSeason)}
-              />
-            );
+            return <SeasonSection key={season} season={season} anime={seasonalAnime[season]} loading={loadingSeasons.has(key)} loaded={loadedSeasons.has(key)} selectedIds={selectedIds} onToggle={toggleAnime} onVisible={(visibleSeason) => void loadSeason(activeYear, visibleSeason, itemsPerSeason)} />;
           })}
         </main>
       )}
 
-      {/* Dock Bar */}
-      <div className="fixed bottom-8 left-1/2 -translate-x-1/2 w-[90%] max-w-3xl z-50">
-        <div className="glass-panel flex items-center justify-between rounded-2xl p-2 pl-6 pr-2 shadow-[0_20px_60px_rgba(14,116,144,0.18)] ring-1 ring-sky-100 transition-all group hover:ring-sky-200">
-          
-          {/* Stats */}
-          <div className="flex items-center gap-5">
-             <div className="flex flex-col">
-               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Rank</span>
-               <span className="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-sky-500 to-rose-400">
-                 {displayedRank}
-               </span>
-             </div>
-             <div className="w-px h-8 bg-sky-100"></div>
-             <div className="flex flex-col">
-               <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Watched</span>
-               <span className="text-lg font-bold text-slate-800 font-mono">{selectedIds.size}</span>
-             </div>
-          </div>
-
-          {/* Actions */}
-          <div className="flex gap-2">
-             <button
-              onClick={() => setIsSqlModalOpen(true)}
-              className="p-3 rounded-xl hover:bg-sky-50 text-blue-500 transition-colors"
-              title="Export SQL"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
-              </svg>
-            </button>
-
-            <button
-              onClick={() => handleAnalyze()}
-              className={`
-                px-6 py-3 rounded-xl font-bold text-sm shadow-lg transition-all duration-300
-                ${selectedIds.size > 0 
-                  ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200' 
-                  : quickTasteProfile
-                    ? 'bg-gradient-to-r from-sky-500 to-rose-400 text-white hover:scale-105 hover:shadow-rose-200'
-                    : 'bg-white text-sky-600 border border-sky-100 hover:bg-sky-50'}
-              `}
-            >
-              {analysisData ? '查看报告' : selectedIds.size > 0 || quickTasteProfile ? '生成报告' : '填写画像'}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <AnalysisModal 
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        loading={isAnalyzing}
-        data={analysisData}
-        count={selectedIds.size}
-        rank={rank}
-      />
-      
-      <SqlExportModal 
-        isOpen={isSqlModalOpen}
-        onClose={() => setIsSqlModalOpen(false)}
-        selectedAnime={Array.from(selectedAnimeDetails.values())}
-      />
-
-      <GameModal
-        isOpen={isGameOpen}
-        onClose={() => setIsGameOpen(false)}
-      />
-
-      <TasteQuizModal
-        isOpen={isTasteQuizOpen}
-        onClose={() => setIsTasteQuizOpen(false)}
-        onSubmit={handleTasteQuizSubmit}
-      />
-
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        itemsPerSeason={itemsPerSeason}
-        setItemsPerSeason={handleConfigChange}
-        startYear={yearRange.start}
-        endYear={yearRange.end}
-        minYear={minSelectableYear}
-        maxYear={maxSelectableYear}
-        onYearRangeChange={handleYearRangeChange}
-        onExportJson={handleExportJson}
-        onImportJson={handleImportJson}
-        onClearCache={handleClearCacheAndReload}
-        onClearSelection={handleClearSelection}
-      />
+      <Suspense fallback={null}>
+        {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} />}
+        {isSqlModalOpen && <SqlExportModal isOpen={isSqlModalOpen} onClose={() => setIsSqlModalOpen(false)} selectedAnime={Array.from(selectedAnimeDetails.values())} />}
+        {isGameOpen && <GameModal isOpen={isGameOpen} onClose={() => setIsGameOpen(false)} />}
+        {isTasteQuizOpen && <TasteQuizModal isOpen={isTasteQuizOpen} onClose={() => setIsTasteQuizOpen(false)} onSubmit={handleTasteQuizSubmit} />}
+        {isSettingsOpen && (
+          <SettingsModal
+            isOpen={isSettingsOpen}
+            onClose={() => setIsSettingsOpen(false)}
+            itemsPerSeason={itemsPerSeason}
+            setItemsPerSeason={setItemsPerSeason}
+            startYear={yearRange.start}
+            endYear={yearRange.end}
+            minYear={DEFAULT_START_YEAR}
+            maxYear={DEFAULT_END_YEAR}
+            onYearRangeChange={handleYearRangeChange}
+            onExportJson={handleExportJson}
+            onImportJson={handleImportJson}
+            onClearCache={handleClearCacheAndReload}
+            onClearSelection={handleClearSelection}
+          />
+        )}
+      </Suspense>
     </div>
   );
 }

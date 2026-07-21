@@ -54,13 +54,13 @@ export const SeasonSection: React.FC<SeasonSectionProps> = ({
       </div>
 
       {loading && !anime.length ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {Array.from({ length: 6 }).map((_, index) => (
             <div key={index} className="aspect-[2/3] animate-pulse rounded-xl bg-sky-100/80" />
           ))}
         </div>
       ) : anime.length ? (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {anime.map((item) => (
             <AnimeCard
               key={item.id}

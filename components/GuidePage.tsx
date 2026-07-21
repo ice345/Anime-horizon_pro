@@ -1,14 +1,25 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import lizuHero from '../pics/LizuToAoiTori_sora.png';
 import { fetchAnimeBySeason } from '../services/anilistService';
-import { Anime, Season, SEASONS, SEASON_CN } from '../types';
+import { Anime, Season, SEASON_CN } from '../types';
 import { AnimeCard } from './AnimeCard';
+import { EmptyState } from './home/EmptyState';
+import { FeaturedSection } from './home/FeaturedSection';
+import { FilterBar } from './home/FilterBar';
+import { SeasonalHero } from './home/SeasonalHero';
+import { SiteFooter } from './home/SiteFooter';
+import { WatchlistSummary } from './home/WatchlistSummary';
 
 interface GuidePageProps {
   year: number;
   itemsPerSeason: number;
   selectedIds: Set<string>;
+  selectedAnime: Anime[];
+  rank: string;
   onToggle: (id: string, anime: Anime) => void;
+  onOpenArchive: () => void;
+  onAnalyze: () => void;
+  onOpenGame: () => void;
+  onOpenTaste: () => void;
 }
 
 const getCurrentSeason = (): Season => {
@@ -19,20 +30,31 @@ const getCurrentSeason = (): Season => {
   return 'FALL';
 };
 
-const statusLabel: Record<string, string> = {
-  RELEASING: '播出中',
-  FINISHED: '已完结',
-  NOT_YET_RELEASED: '未播出',
-  CANCELLED: '已取消',
-  HIATUS: '暂停中'
-};
+const sortAnime = (items: Anime[], sort: string) => [...items].sort((left, right) => {
+  if (sort === 'score') return (right.averageScore || 0) - (left.averageScore || 0);
+  if (sort === 'title') return (left.title.native || left.title.romaji).localeCompare(right.title.native || right.title.romaji, 'ja');
+  return (right.nextAiringEpisode?.airingAt || 0) - (left.nextAiringEpisode?.airingAt || 0) || (right.popularity || 0) - (left.popularity || 0);
+});
 
-export const GuidePage: React.FC<GuidePageProps> = ({ year, itemsPerSeason, selectedIds, onToggle }) => {
+export const GuidePage: React.FC<GuidePageProps> = ({
+  year,
+  itemsPerSeason,
+  selectedIds,
+  selectedAnime,
+  rank,
+  onToggle,
+  onOpenArchive,
+  onAnalyze,
+  onOpenGame,
+  onOpenTaste
+}) => {
   const [season, setSeason] = useState<Season>(getCurrentSeason());
   const [anime, setAnime] = useState<Anime[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [format, setFormat] = useState('ALL');
   const [genre, setGenre] = useState('ALL');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState('latest');
+  const [view, setView] = useState<'grid' | 'list'>('grid');
 
   useEffect(() => {
     let cancelled = false;
@@ -46,119 +68,54 @@ export const GuidePage: React.FC<GuidePageProps> = ({ year, itemsPerSeason, sele
       .finally(() => {
         if (!cancelled) setIsLoading(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [itemsPerSeason, season, year]);
 
-  const genres = useMemo(() => {
-    return Array.from(new Set(anime.flatMap((item) => item.genres))).sort();
-  }, [anime]);
-
-  const filteredAnime = useMemo(() => {
-    return anime.filter((item) => {
-      const formatMatch = format === 'ALL' || item.format === format;
-      const genreMatch = genre === 'ALL' || item.genres.includes(genre);
-      return formatMatch && genreMatch;
-    });
-  }, [anime, format, genre]);
-
-  const focusAnime = anime.slice(0, 3);
+  const genres = useMemo(() => Array.from(new Set(anime.flatMap((item) => item.genres))).sort(), [anime]);
+  const seasonSelections = useMemo(() => anime.filter((item) => selectedIds.has(String(item.id))), [anime, selectedIds]);
+  const filteredAnime = useMemo(() => sortAnime(anime.filter((item) => {
+    const haystack = [item.title.native, item.title.romaji, item.title.english, ...item.genres].filter(Boolean).join(' ').toLocaleLowerCase();
+    return (genre === 'ALL' || item.genres.includes(genre)) && haystack.includes(search.trim().toLocaleLowerCase());
+  }), sort), [anime, genre, search, sort]);
+  const focusAnime = useMemo(() => sortAnime(anime, 'score').slice(0, 3), [anime]);
+  const seasonName = SEASON_CN[season].split(' ')[0];
 
   return (
-    <main className="relative z-10 mx-auto max-w-[1800px] px-4 pb-40 pt-5">
-      <section className="relative min-h-[360px] overflow-hidden rounded-[2rem] border border-white/70 shadow-[0_24px_80px_rgba(14,116,144,0.16)]">
-        <img src={lizuHero} alt="蓝色天空与飞鸟" className="absolute inset-0 h-full w-full object-cover" />
-        <div className="absolute inset-0 bg-gradient-to-r from-sky-950/70 via-sky-900/25 to-transparent" />
-        <div className="relative flex min-h-[360px] flex-col justify-end p-7 text-white md:p-12">
-          <p className="text-xs font-black uppercase tracking-[0.32em] text-sky-100">Seasonal Guide / {year}</p>
-          <h1 className="mt-3 max-w-2xl font-jp text-4xl font-black leading-tight md:text-6xl">
-            {SEASON_CN[season].split(' ')[0]}新番导视
-          </h1>
-          <p className="mt-4 max-w-xl text-sm leading-7 text-sky-50/90 md:text-base">
-            从一季作品里挑出想追的、想观望的，以及下一部会陪你走完的作品。
-          </p>
-          <div className="mt-7 flex flex-wrap gap-2">
-            {SEASONS.map((item) => (
-              <button
-                key={item}
-                onClick={() => setSeason(item)}
-                className={`rounded-full px-4 py-2 text-sm font-black transition ${season === item ? 'bg-white text-sky-700' : 'bg-white/15 text-white hover:bg-white/25'}`}
-              >
-                {SEASON_CN[item].split(' ')[0]}
-              </button>
-            ))}
-          </div>
-        </div>
+    <main className="relative z-10 mx-auto max-w-[var(--ah-page-width)] px-5 pb-12 pt-7 md:px-8 md:pt-9">
+      <div className="ah-entry">
+        <SeasonalHero year={year} season={season} total={anime.length} selectedCount={seasonSelections.length} onSeasonChange={setSeason} />
+      </div>
+
+      <section className="ah-entry-delay mt-8 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(310px,0.8fr)]">
+        <FeaturedSection anime={focusAnime} selectedIds={selectedIds} onToggle={(item) => onToggle(String(item.id), item)} />
+        <WatchlistSummary selectedAnime={selectedAnime} onOpenArchive={onOpenArchive} onAnalyze={onAnalyze} />
       </section>
 
-      <section className="mt-8 grid gap-4 lg:grid-cols-[1.4fr_1fr]">
-        <div className="rounded-3xl border border-sky-100 bg-white/75 p-5 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">Season Focus</p>
-          <h2 className="mt-2 font-jp text-2xl font-black text-slate-900">本季值得先看什么</h2>
-          <div className="mt-5 grid gap-3 sm:grid-cols-3">
-            {focusAnime.map((item, index) => (
-              <div key={item.id} className="rounded-2xl border border-sky-100 bg-sky-50/70 p-4">
-                <p className="text-xs font-black text-sky-500">0{index + 1}</p>
-                <p className="mt-2 line-clamp-2 text-sm font-black text-slate-800">{item.title.native || item.title.romaji}</p>
-                <p className="mt-2 text-xs text-slate-500">{item.averageScore ? `${item.averageScore}% 评分` : '评分待更新'}</p>
-              </div>
-            ))}
-            {!focusAnime.length && !isLoading && <p className="text-sm text-slate-400">本季数据还在整理中</p>}
-          </div>
-        </div>
-
-        <div className="rounded-3xl border border-rose-100 bg-rose-50/70 p-5 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.24em] text-rose-400">My Watchlist</p>
-          <h2 className="mt-2 font-jp text-2xl font-black text-slate-900">把喜欢的留下</h2>
-          <p className="mt-3 text-sm leading-6 text-slate-500">点击作品卡片即可加入记录，之后可以在我的记录页生成鉴赏档案。</p>
-          <div className="mt-5 text-4xl font-black text-rose-400">{filteredAnime.filter((item) => selectedIds.has(String(item.id))).length}</div>
-          <p className="text-xs font-bold text-slate-400">本季已加入记录</p>
-        </div>
-      </section>
-
-      <section className="mt-8">
-        <div className="mb-5 flex flex-col gap-4 rounded-3xl border border-sky-100 bg-white/75 p-4 shadow-sm md:flex-row md:items-center md:justify-between">
+      <section id="catalogue" aria-labelledby="catalogue-title" className="mt-12 scroll-mt-24">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">All Titles</p>
-            <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">{SEASON_CN[season].split(' ')[0]}番表</h2>
+            <p className="ah-section-label">All Titles</p>
+            <h2 id="catalogue-title" className="mt-2 font-jp text-3xl font-medium text-yearbook-ink">{seasonName}番表</h2>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <select value={format} onChange={(event) => setFormat(event.target.value)} className="rounded-xl border border-sky-100 bg-white px-3 py-2 text-sm font-bold text-slate-600 outline-none">
-              <option value="ALL">全部类型</option>
-              <option value="TV">TV</option>
-              <option value="TV_SHORT">TV Short</option>
-              <option value="MOVIE">Movie</option>
-              <option value="ONA">ONA</option>
-              <option value="OVA">OVA</option>
-            </select>
-            <select value={genre} onChange={(event) => setGenre(event.target.value)} className="max-w-48 rounded-xl border border-sky-100 bg-white px-3 py-2 text-sm font-bold text-slate-600 outline-none">
-              <option value="ALL">全部题材</option>
-              {genres.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-          </div>
+          <p className="text-sm text-yearbook-muted">{filteredAnime.length} 部作品</p>
         </div>
+
+        <FilterBar genres={genres} activeGenre={genre} search={search} sort={sort} view={view} onGenreChange={setGenre} onSearchChange={setSearch} onSortChange={setSort} onViewChange={setView} />
 
         {isLoading ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-            {Array.from({ length: 12 }).map((_, index) => <div key={index} className="aspect-[2/3] animate-pulse rounded-xl bg-sky-100/80" />)}
+          <div className="mt-6 grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {Array.from({ length: 10 }).map((_, index) => <div key={index} className="aspect-[3/4] animate-pulse rounded-[var(--ah-radius-md)] bg-yearbook-blue" />)}
           </div>
         ) : filteredAnime.length ? (
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
-            {filteredAnime.map((item) => (
-              <div key={item.id} className="relative">
-                <AnimeCard anime={item} selected={selectedIds.has(String(item.id))} onToggle={() => onToggle(String(item.id), item)} />
-                <div className="pointer-events-none absolute left-3 top-3 z-20 rounded-full bg-white/85 px-2 py-1 text-[10px] font-black text-slate-600 shadow-sm">
-                  {statusLabel[item.status || ''] || item.format || 'ANIME'}
-                </div>
-              </div>
-            ))}
+          <div className={`mt-6 ${view === 'grid' ? 'grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5' : 'grid gap-3'}`}>
+            {filteredAnime.map((item) => <AnimeCard key={item.id} anime={item} selected={selectedIds.has(String(item.id))} onToggle={() => onToggle(String(item.id), item)} view={view} />)}
           </div>
         ) : (
-          <div className="rounded-3xl border border-dashed border-sky-100 bg-white/60 px-5 py-16 text-center text-sm text-slate-400">没有符合筛选条件的作品</div>
+          <div className="mt-6"><EmptyState message="没有找到符合当前筛选条件的作品。换一个关键词，或者回到全部类型看看。" /></div>
         )}
       </section>
+
+      <SiteFooter watched={selectedIds.size} rank={rank} onOpenGame={onOpenGame} onOpenTaste={onOpenTaste} />
     </main>
   );
 };

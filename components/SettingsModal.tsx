@@ -34,7 +34,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
-      <div className="bg-white/[0.94] text-slate-800 w-full max-w-lg rounded-[1.75rem] border border-white/70 shadow-[0_30px_90px_rgba(14,116,144,0.28)] flex flex-col relative overflow-hidden">
+      <div role="dialog" aria-modal="true" aria-labelledby="settings-title" className="bg-white/[0.94] text-slate-800 w-full max-w-lg rounded-[1.75rem] border border-white/70 shadow-[0_30px_90px_rgba(14,116,144,0.28)] flex flex-col relative overflow-hidden">
         
         {/* Background Accent */}
         <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(14,116,144,0.05)_1px,transparent_1px)] bg-[size:100%_34px]"></div>
@@ -43,12 +43,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           
           <div className="flex justify-between items-start">
              <div>
-               <h2 className="text-2xl font-black text-slate-900 font-jp tracking-wide">
+               <h2 id="settings-title" className="text-2xl font-black text-slate-900 font-jp tracking-wide">
                  数据设置
                </h2>
                <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest">Configuration & Data</p>
              </div>
-             <button onClick={onClose} className="text-slate-400 hover:text-slate-900 transition-colors">
+             <button type="button" aria-label="关闭数据设置" onClick={onClose} className="text-slate-400 hover:text-slate-900 transition-colors">
                <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                </svg>

@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Anime Horizon - 动画生涯编年史</title>
     <meta name="description" content="Anime Horizon 是一个新番导视、补番记录、二次元偏好测评与小游戏网站。" />
-    <meta name="theme-color" content="#f8fcff" />
+    <meta name="theme-color" content="#fbfaf7" />
+    <link rel="icon" href="/favicon.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/favicon.png" />
     <meta property="og:title" content="Anime Horizon" />
     <meta property="og:description" content="新番导视、补番记录、偏好测评与小游戏。" />
     <meta property="og:type" content="website" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Outfit:wght@300;400;600;800&family=Zen+Maru+Gothic:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
     <script>
       tailwind.config = {
         theme: {
@@ -21,11 +23,21 @@
             },
             colors: {
               anime: {
-                dark: '#f8fcff',
-                card: '#ffffff',
-                primary: '#38bdf8', 
-                accent: '#fb7185', 
-                highlight: '#0ea5e9', 
+                dark: 'var(--ah-paper)',
+                card: 'var(--ah-surface)',
+                primary: 'var(--ah-primary)',
+                accent: 'var(--ah-pink)',
+                highlight: 'var(--ah-primary)',
+              },
+              yearbook: {
+                paper: 'var(--ah-paper)',
+                surface: 'var(--ah-surface)',
+                blue: 'var(--ah-surface-blue)',
+                sky: 'var(--ah-primary)',
+                ink: 'var(--ah-ink)',
+                muted: 'var(--ah-muted)',
+                pink: 'var(--ah-pink)',
+                line: 'var(--ah-border)'
               }
             },
             animation: {
@@ -50,11 +62,25 @@
     </script>
     <style>
       :root {
-        --bg-color: #f8fcff;
+        --ah-paper: #fbfaf7;
+        --ah-surface: #fffefd;
+        --ah-surface-blue: #f2f7fb;
+        --ah-primary: #629fdc;
+        --ah-primary-soft: #dceafa;
+        --ah-ink: #26364d;
+        --ah-muted: #75849a;
+        --ah-pink: #e8aeb8;
+        --ah-border: rgba(91, 124, 160, 0.14);
+        --ah-page-width: 1280px;
+        --ah-radius-sm: 8px;
+        --ah-radius-md: 14px;
+        --ah-radius-lg: 20px;
+        --ah-shadow-soft: 0 12px 35px rgba(59, 95, 132, 0.08);
+        --ah-transition: 180ms ease;
       }
       body {
-        background-color: var(--bg-color);
-        color: #0f172a;
+        background-color: var(--ah-paper);
+        color: var(--ah-ink);
         overflow-x: hidden;
         min-height: 100vh;
       }
@@ -69,8 +95,8 @@
         height: 100%;
         background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)' opacity='0.05'/%3E%3C/svg%3E");
         pointer-events: none;
-        z-index: 50;
-        opacity: 0.4;
+        z-index: 40;
+        opacity: 0.18;
       }
 
       .scrollbar-hide::-webkit-scrollbar {
@@ -95,18 +121,53 @@
         background: rgba(255, 255, 255, 0.3);
       }
 
-      .glass-panel {
-        background: rgba(255, 255, 255, 0.78);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        border: 1px solid rgba(186, 230, 253, 0.7);
-        box-shadow: 0 18px 48px 0 rgba(14, 116, 144, 0.16);
+      .ah-shell {
+        min-height: 100vh;
+        background: var(--ah-paper);
+      }
+
+      .ah-section-label {
+        color: var(--ah-primary);
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+      }
+
+      .ah-focus-ring:focus-visible,
+      button:focus-visible,
+      select:focus-visible,
+      input:focus-visible {
+        outline: 3px solid rgba(98, 159, 220, 0.42);
+        outline-offset: 3px;
+      }
+
+      .ah-entry {
+        animation: ahEntry 520ms ease both;
+      }
+
+      .ah-entry-delay {
+        animation: ahEntry 520ms 80ms ease both;
+      }
+
+      @keyframes ahEntry {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
       }
       
       /* Smooth selection */
       ::selection {
-        background: rgba(244, 63, 94, 0.3);
-        color: white;
+        background: var(--ah-primary-soft);
+        color: var(--ah-ink);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          scroll-behavior: auto !important;
+          transition-duration: 0.01ms !important;
+        }
       }
     </style>
   <script type="importmap">
