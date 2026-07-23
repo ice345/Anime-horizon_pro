@@ -8,18 +8,17 @@ import { FilterBar } from './home/FilterBar';
 import { SeasonalHero } from './home/SeasonalHero';
 import { SiteFooter } from './home/SiteFooter';
 import { WatchlistSummary } from './home/WatchlistSummary';
+import { TasteProfile } from '../services/tasteProfile';
 
 interface GuidePageProps {
   year: number;
   itemsPerSeason: number;
   selectedIds: Set<string>;
   selectedAnime: Anime[];
-  rank: string;
+  profile: TasteProfile;
   onToggle: (id: string, anime: Anime) => void;
   onOpenArchive: () => void;
   onAnalyze: () => void;
-  onOpenGame: () => void;
-  onOpenTaste: () => void;
 }
 
 const getCurrentSeason = (): Season => {
@@ -41,12 +40,10 @@ export const GuidePage: React.FC<GuidePageProps> = ({
   itemsPerSeason,
   selectedIds,
   selectedAnime,
-  rank,
+  profile,
   onToggle,
   onOpenArchive,
-  onAnalyze,
-  onOpenGame,
-  onOpenTaste
+  onAnalyze
 }) => {
   const [season, setSeason] = useState<Season>(getCurrentSeason());
   const [anime, setAnime] = useState<Anime[]>([]);
@@ -88,7 +85,7 @@ export const GuidePage: React.FC<GuidePageProps> = ({
 
       <section className="ah-entry-delay mt-8 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(310px,0.8fr)]">
         <FeaturedSection anime={focusAnime} selectedIds={selectedIds} onToggle={(item) => onToggle(String(item.id), item)} />
-        <WatchlistSummary selectedAnime={selectedAnime} onOpenArchive={onOpenArchive} onAnalyze={onAnalyze} />
+        <WatchlistSummary selectedAnime={selectedAnime} profile={profile} onOpenArchive={onOpenArchive} onAnalyze={onAnalyze} />
       </section>
 
       <section id="catalogue" aria-labelledby="catalogue-title" className="mt-12 scroll-mt-24">
@@ -115,7 +112,7 @@ export const GuidePage: React.FC<GuidePageProps> = ({
         )}
       </section>
 
-      <SiteFooter watched={selectedIds.size} rank={rank} onOpenGame={onOpenGame} onOpenTaste={onOpenTaste} />
+      <SiteFooter />
     </main>
   );
 };

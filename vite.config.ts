@@ -10,7 +10,6 @@ export default defineConfig(({ mode }) => {
     // 逻辑：优先读取系统环境变量(process.env)，如果读不到，再去读 .env 文件(env)
     // 在 Render 上，process.env.* 会有值；本地则读取 .env.local。
     const geminiKey = process.env.GEMINI_API_KEY || env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY;
-    const deepseekBrowserKey = env.VITE_DEEPSEEK_API_KEY;
     const deepseekProxyUrl = env.VITE_DEEPSEEK_PROXY_URL || process.env.VITE_DEEPSEEK_PROXY_URL;
     // 阿里云通义千问：本地 .env 优先，其次系统环境变量
     const aliyunKey = env.ALIYUN_API_KEY || process.env.ALIYUN_API_KEY || env.VITE_ALIYUN_API_KEY;
@@ -26,7 +25,6 @@ export default defineConfig(({ mode }) => {
         // 3. 把取到的值注入到代码中
         'import.meta.env.VITE_GEMINI_API_KEY': JSON.stringify(geminiKey),
         'import.meta.env.VITE_API_KEY': JSON.stringify(geminiKey),
-        'import.meta.env.VITE_DEEPSEEK_API_KEY': JSON.stringify(deepseekBrowserKey),
         'import.meta.env.VITE_DEEPSEEK_PROXY_URL': JSON.stringify(deepseekProxyUrl),
         'import.meta.env.VITE_ALIYUN_API_KEY': JSON.stringify(aliyunKey),
 

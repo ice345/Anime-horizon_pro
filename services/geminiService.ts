@@ -1,7 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 
 const GEMINI_MODEL = 'gemini-2.5-flash';
-const DEEPSEEK_MODEL = 'deepseek-chat';
+const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
 // 默认优先使用用户配置（当前 deepseek-v3.2），回退到通义千问系列较稳的档位
 const ALIYUN_MODEL = 'deepseek-v3.2';
@@ -10,11 +10,28 @@ const ALIYUN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/
 const TIMEOUT_MS = 12000;
 const env = import.meta.env;
 const GEMINI_API_KEY = env.VITE_GEMINI_API_KEY || env.VITE_API_KEY || env.GEMINI_API_KEY || env.API_KEY;
-const DEEPSEEK_API_KEY = env.VITE_DEEPSEEK_API_KEY || env.DEEPSEEK_API_KEY;
 const DEEPSEEK_PROXY_URL = env.VITE_DEEPSEEK_PROXY_URL || '/api/deepseek/chat';
 const ALIYUN_API_KEY = env.VITE_ALIYUN_API_KEY || env.ALIYUN_API_KEY;
 const PREFER_DEEPSEEK = env.VITE_USE_DEEPSEEK_FIRST !== 'false';
 const PREFER_ALIYUN = env.VITE_ALIYUN_ONLY === 'true' || env.VITE_USE_ALIYUN_FIRST === 'true';
+const SESSION_DEEPSEEK_KEY = 'anime-horizon-session-deepseek-key';
+
+export const getSessionDeepSeekApiKey = () => {
+  if (typeof window === 'undefined') return '';
+  return window.sessionStorage.getItem(SESSION_DEEPSEEK_KEY)?.trim() || '';
+};
+
+export const setSessionDeepSeekApiKey = (apiKey: string) => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.setItem(SESSION_DEEPSEEK_KEY, apiKey.trim());
+};
+
+export const clearSessionDeepSeekApiKey = () => {
+  if (typeof window === 'undefined') return;
+  window.sessionStorage.removeItem(SESSION_DEEPSEEK_KEY);
+};
+
+export const isUsingSessionDeepSeekKey = () => Boolean(getSessionDeepSeekApiKey());
 
 // Simple in-memory recency buckets to reduce repetition
 const recentEmojiTitles: string[] = [];
@@ -246,7 +263,46 @@ const callGemini = async (prompt: string) => {
   return ensureShape(parseJsonSafe(response.text));
 };
 
+const callDeepSeekDirect = async (prompt: string, apiKey: string) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+
+  try {
+    const res = await fetch(DEEPSEEK_BASE_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model: DEEPSEEK_MODEL,
+        messages: [{ role: 'user', content: prompt }],
+        response_format: { type: 'json_object' }
+      }),
+      signal: controller.signal
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`DeepSeek API Error ${res.status}: ${text}`);
+    }
+
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content;
+    if (!content) throw new Error('DeepSeek response empty');
+    return parseJsonSafe(content);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 const callDeepSeekRaw = async (prompt: string) => {
+  const sessionApiKey = getSessionDeepSeekApiKey();
+  if (sessionApiKey) {
+    // A personal key must never fall back to the site account after it is enabled.
+    return callDeepSeekDirect(prompt, sessionApiKey);
+  }
+
   const callServerProxy = async () => {
     const res = await fetch(DEEPSEEK_PROXY_URL, {
       method: 'POST',
@@ -267,45 +323,7 @@ const callDeepSeekRaw = async (prompt: string) => {
     return parseJsonSafe(content);
   };
 
-  try {
-    return await callServerProxy();
-  } catch (proxyError) {
-    if (!DEEPSEEK_API_KEY) {
-      throw proxyError;
-    }
-    console.warn('DeepSeek proxy unavailable, using browser key fallback:', proxyError);
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const res = await fetch(DEEPSEEK_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${DEEPSEEK_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: DEEPSEEK_MODEL,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' }
-    }),
-    signal: controller.signal
-  });
-
-  clearTimeout(timer);
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`DeepSeek API Error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('DeepSeek response empty');
-  }
-  return parseJsonSafe(content);
+  return callServerProxy();
 };
 
 const callDeepSeek = async (prompt: string) => ensureShape(await callDeepSeekRaw(prompt));
@@ -435,6 +453,8 @@ export const analyzeAnimeTaste = async (animeTitles: string[], rank: string) => 
   const tryGemini = async () => normalizeResult(await callGemini(prompt));
   const tryAliyun = async () => normalizeResult(await callAliyun(prompt));
 
+  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
+
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
     try {
       return await tryDeepSeek();
@@ -529,6 +549,8 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
   const tryAliyun = async () => normalizeCharacter(await callAliyunRaw(prompt));
   const canAliyun = Boolean(getAliyunKey());
 
+  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
+
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
     try {
       return await tryDeepSeek();
@@ -618,6 +640,8 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
   const canAliyun = Boolean(getAliyunKey());
 
   const runOnce = async (currentSeed: number) => {
+    if (isUsingSessionDeepSeekKey()) return tryDeepSeek(currentSeed);
+
     if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
       try {
         return await tryDeepSeek(currentSeed);
@@ -719,6 +743,8 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
   const tryDeepSeek = async () => normalizeOracle(await callDeepSeekRaw(prompt));
   const tryAliyun = async () => normalizeOracle(await callAliyunRaw(prompt));
 
+  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
+
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
     try {
       return await tryDeepSeek();
@@ -789,6 +815,8 @@ export const checkGameWin = async (secret: GameCharacter | EmojiGameChallenge, u
     const res = await callDeepSeekRaw(prompt);
     return res.correct === true;
   };
+
+  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
 
   if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
     try {

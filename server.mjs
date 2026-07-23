@@ -8,7 +8,7 @@ const distDir = join(__dirname, 'dist');
 const port = Number(process.env.PORT || 3000);
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepseekBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions';
-const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-chat';
+const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const corsOrigin = process.env.CORS_ORIGIN || '*';
 
 const mimeTypes = {

@@ -1,4 +1,5 @@
 export type Season = 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
+export type UserAnimeStatus = 'PLAN' | 'WATCHING' | 'COMPLETED';
 
 export interface AnimeTitle {
   romaji: string;
@@ -33,6 +34,8 @@ export interface Anime {
     timeUntilAiring: number;
     episode: number;
   };
+  // Personal archive metadata. AniList data never determines this value.
+  userStatus?: UserAnimeStatus;
 }
 
 export type OtakuRank = '现充' | '路人' | '动画爱好者' | '老二次元' | '萌豚' | '婆罗门' | '动漫之神';

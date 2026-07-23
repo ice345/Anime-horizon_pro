@@ -1,10 +1,11 @@
 import React from 'react';
-import { Anime, SEASON_CN } from '../types';
+import { Anime, SEASON_CN, UserAnimeStatus } from '../types';
 
 interface AnimeCardProps {
   anime: Anime;
   selected: boolean;
   onToggle: () => void;
+  onSetStatus?: (status: UserAnimeStatus) => void;
   view?: 'grid' | 'list';
 }
 
@@ -21,52 +22,70 @@ const BookmarkIcon = ({ filled }: { filled: boolean }) => (
   </svg>
 );
 
-export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle, view = 'grid' }) => {
+const userStatusOptions: Array<{ value: UserAnimeStatus; label: string }> = [
+  { value: 'PLAN', label: '想看' },
+  { value: 'WATCHING', label: '追更' },
+  { value: 'COMPLETED', label: '已看完' }
+];
+
+export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle, onSetStatus, view = 'grid' }) => {
   const displayTitle = anime.title.native || anime.title.romaji || anime.title.english;
   const subTitle = anime.title.romaji !== displayTitle ? anime.title.romaji : anime.title.english;
   const coverUrl = anime.coverImage.extraLarge || anime.coverImage.large;
   const status = statusText[anime.status || ''] || anime.format || '动画';
   const isList = view === 'list';
+  const userStatus = anime.userStatus || 'PLAN';
 
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      aria-pressed={selected}
-      aria-label={`${selected ? '从年鉴移除' : '加入年鉴'}：${displayTitle}`}
-      className={`group relative w-full overflow-hidden border border-yearbook-line bg-yearbook-surface text-left shadow-[0_8px_24px_rgba(59,95,132,0.055)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_14px_32px_rgba(59,95,132,0.12)] ${isList ? 'flex min-h-36 rounded-[var(--ah-radius-md)]' : 'rounded-[var(--ah-radius-md)]'}`}
-    >
-      <div className={`relative shrink-0 overflow-hidden bg-yearbook-blue ${isList ? 'w-28 sm:w-36' : 'aspect-[3/4] w-full'}`}>
-        <img src={coverUrl} alt={displayTitle} loading="lazy" decoding="async" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]" />
-        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-yearbook-surface/88 px-2 py-1 text-[10px] font-medium text-yearbook-muted backdrop-blur-sm">
-          <span className={`h-1.5 w-1.5 rounded-full ${anime.status === 'RELEASING' ? 'bg-yearbook-pink' : 'bg-yearbook-sky'}`} />
-          {status}
-        </span>
-      </div>
-
-      <div className={`min-w-0 ${isList ? 'flex flex-1 flex-col justify-center p-4 sm:p-5' : 'p-3.5'}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h3 className={`line-clamp-2 font-medium leading-5 text-yearbook-ink ${isList ? 'text-base sm:text-lg' : 'text-sm'}`}>{displayTitle}</h3>
-            {subTitle && <p className="mt-1 line-clamp-1 text-[11px] text-yearbook-muted">{subTitle}</p>}
-          </div>
-          <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${selected ? 'bg-rose-50 text-yearbook-pink' : 'text-yearbook-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'}`}>
-            <BookmarkIcon filled={selected} />
+    <article className={`overflow-hidden border border-yearbook-line bg-yearbook-surface shadow-[0_8px_24px_rgba(59,95,132,0.055)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_14px_32px_rgba(59,95,132,0.12)] ${isList ? 'rounded-[var(--ah-radius-md)]' : 'rounded-[var(--ah-radius-md)]'}`}>
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-pressed={selected}
+        aria-label={`${selected ? '从年鉴移除' : '加入年鉴'}：${displayTitle}`}
+        className={`group relative w-full text-left ${isList ? 'flex min-h-36' : ''}`}
+      >
+        <div className={`relative shrink-0 overflow-hidden bg-yearbook-blue ${isList ? 'w-28 sm:w-36' : 'aspect-[3/4] w-full'}`}>
+          <img src={coverUrl} alt={displayTitle} loading="lazy" decoding="async" className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.035]" />
+          <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-yearbook-surface/88 px-2 py-1 text-[10px] font-medium text-yearbook-muted backdrop-blur-sm">
+            <span className={`h-1.5 w-1.5 rounded-full ${anime.status === 'RELEASING' ? 'bg-yearbook-pink' : 'bg-yearbook-sky'}`} />
+            {status}
           </span>
         </div>
 
-        <div className={`mt-3 flex items-center justify-between gap-3 text-[11px] text-yearbook-muted ${isList ? 'sm:mt-4' : ''}`}>
-          <span className="truncate">{anime.genres.slice(0, 2).join(' · ') || anime.format || '动画'}</span>
-          {anime.averageScore && <span className="shrink-0 font-medium text-yearbook-sky">{anime.averageScore}%</span>}
-        </div>
-        {isList && (
-          <div className="mt-2 space-y-1.5 text-xs leading-5 text-yearbook-muted">
-            <p>{anime.seasonYear || '年份未知'} · {anime.season ? SEASON_CN[anime.season].split(' ')[0] : '季度未知'} · {anime.format || '动画'}{anime.episodes ? ` · ${anime.episodes} 集` : ''}{anime.duration ? ` · ${anime.duration} 分钟` : ''}</p>
-            {anime.studios?.length ? <p>制作：{anime.studios.slice(0, 2).join(' / ')}</p> : null}
-            <p className="line-clamp-2">{anime.description?.replace(/<[^>]+>/g, '') || '将这部作品收进你的年鉴，留下自己的观看记录。'}</p>
+        <div className={`min-w-0 ${isList ? 'flex flex-1 flex-col justify-center p-4 sm:p-5' : 'p-3.5'}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className={`line-clamp-2 font-medium leading-5 text-yearbook-ink ${isList ? 'text-base sm:text-lg' : 'text-sm'}`}>{displayTitle}</h3>
+              {subTitle && <p className="mt-1 line-clamp-1 text-[11px] text-yearbook-muted">{subTitle}</p>}
+            </div>
+            <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${selected ? 'bg-rose-50 text-yearbook-pink' : 'text-yearbook-muted opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100'}`}>
+              <BookmarkIcon filled={selected} />
+            </span>
           </div>
-        )}
-      </div>
-    </button>
+
+          <div className={`mt-3 flex items-center justify-between gap-3 text-[11px] text-yearbook-muted ${isList ? 'sm:mt-4' : ''}`}>
+            <span className="truncate">{anime.genres.slice(0, 2).join(' · ') || anime.format || '动画'}</span>
+            {anime.averageScore && <span className="shrink-0 font-medium text-yearbook-sky">{anime.averageScore}%</span>}
+          </div>
+          {isList && (
+            <div className="mt-2 space-y-1.5 text-xs leading-5 text-yearbook-muted">
+              <p>{anime.seasonYear || '年份未知'} · {anime.season ? SEASON_CN[anime.season].split(' ')[0] : '季度未知'} · {anime.format || '动画'}{anime.episodes ? ` · ${anime.episodes} 集` : ''}{anime.duration ? ` · ${anime.duration} 分钟` : ''}</p>
+              {anime.studios?.length ? <p>制作：{anime.studios.slice(0, 2).join(' / ')}</p> : null}
+              <p className="line-clamp-2">{anime.description?.replace(/<[^>]+>/g, '') || '将这部作品收进你的年鉴，留下自己的观看记录。'}</p>
+            </div>
+          )}
+        </div>
+      </button>
+
+      {selected && onSetStatus && (
+        <label className="flex items-center justify-between gap-3 border-t border-yearbook-line bg-yearbook-paper/60 px-3.5 py-2.5 text-xs text-yearbook-muted">
+          <span>我的状态</span>
+          <select value={userStatus} onChange={(event) => onSetStatus(event.target.value as UserAnimeStatus)} aria-label={`${displayTitle} 的观看状态`} className="border-0 bg-transparent py-1 text-sm font-medium text-yearbook-ink outline-none">
+            {userStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+      )}
+    </article>
   );
 };

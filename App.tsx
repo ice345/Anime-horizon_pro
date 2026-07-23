@@ -5,14 +5,16 @@ import { DecorativeBackground } from './components/home/DecorativeBackground';
 import { SiteHeader } from './components/home/SiteHeader';
 import { YearNavigation } from './components/home/YearNavigation';
 import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
-import { analyzeAnimeTaste } from './services/geminiService';
-import { Anime, OtakuRank, Season, SEASONS, SEASON_ORDER } from './types';
+import { analyzeAnimeTaste, isUsingSessionDeepSeekKey } from './services/geminiService';
+import { buildTasteProfile } from './services/tasteProfile';
+import { Anime, OtakuRank, Season, SEASON_ORDER, UserAnimeStatus } from './types';
 
 const AnalysisModal = lazy(() => import('./components/AnalysisModal').then(({ AnalysisModal: Component }) => ({ default: Component })));
 const SqlExportModal = lazy(() => import('./components/SqlExportModal').then(({ SqlExportModal: Component }) => ({ default: Component })));
 const GameModal = lazy(() => import('./components/GameModal').then(({ GameModal: Component }) => ({ default: Component })));
 const TasteQuizModal = lazy(() => import('./components/TasteQuizModal').then(({ TasteQuizModal: Component }) => ({ default: Component })));
 const SettingsModal = lazy(() => import('./components/SettingsModal').then(({ SettingsModal: Component }) => ({ default: Component })));
+const AISettingsModal = lazy(() => import('./components/AISettingsModal').then(({ AISettingsModal: Component }) => ({ default: Component })));
 const GlobalAnimeSearchModal = lazy(() => import('./components/home/GlobalAnimeSearchModal').then(({ GlobalAnimeSearchModal: Component }) => ({ default: Component })));
 
 const CURRENT_REAL_YEAR = new Date().getFullYear();
@@ -34,15 +36,9 @@ const buildYears = (start: number, end: number) => {
   return Array.from({ length: safeEnd - safeStart + 1 }, (_, index) => safeEnd - index);
 };
 
-const getRank = (count: number): OtakuRank => {
-  if (count === 0) return '现充';
-  if (count < 8) return '路人';
-  if (count < 25) return '动画爱好者';
-  if (count < 70) return '老二次元';
-  if (count < 150) return '萌豚';
-  if (count < 300) return '婆罗门';
-  return '动漫之神';
-};
+const normalizeUserStatus = (status?: UserAnimeStatus): UserAnimeStatus => (
+  status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN'
+);
 
 export default function App() {
   const loadSavedYearRange = () => {
@@ -61,6 +57,7 @@ export default function App() {
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map<string, Anime>());
+  const [archiveReady, setArchiveReady] = useState(false);
   const [route, setRoute] = useState<'guide' | 'record'>(() => window.location.pathname === '/archive' ? 'record' : 'guide');
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(loadSavedYearRange);
   const years = useMemo(() => buildYears(yearRange.start, yearRange.end), [yearRange]);
@@ -73,6 +70,7 @@ export default function App() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAISettingsOpen, setIsAISettingsOpen] = useState(false);
   const [isGameOpen, setIsGameOpen] = useState(false);
   const [isTasteQuizOpen, setIsTasteQuizOpen] = useState(false);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
@@ -88,17 +86,20 @@ export default function App() {
       if (saved) setSelectedIds(new Set(JSON.parse(saved)));
       if (savedDetails) {
         const details = JSON.parse(savedDetails) as Anime[];
-        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), anime])));
+        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), { ...anime, userStatus: normalizeUserStatus(anime.userStatus) }])));
       }
     } catch (error) {
       console.warn('Failed to restore local archive', error);
+    } finally {
+      setArchiveReady(true);
     }
   }, []);
 
   useEffect(() => {
+    if (!archiveReady) return;
     localStorage.setItem('anime-horizon-selected-v3', JSON.stringify(Array.from(selectedIds)));
     localStorage.setItem('anime-horizon-details-v3', JSON.stringify(Array.from(selectedAnimeDetails.values())));
-  }, [selectedIds, selectedAnimeDetails]);
+  }, [archiveReady, selectedIds, selectedAnimeDetails]);
 
   useEffect(() => {
     localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
@@ -212,13 +213,24 @@ export default function App() {
       nextDetails.delete(id);
     } else {
       nextIds.add(id);
-      nextDetails.set(id, anime);
+      nextDetails.set(id, { ...anime, userStatus: 'PLAN' });
     }
     setSelectedIds(nextIds);
     setSelectedAnimeDetails(nextDetails);
   };
 
-  const rank = getRank(selectedIds.size);
+  const handleUpdateAnimeStatus = (id: string, userStatus: UserAnimeStatus) => {
+    setSelectedAnimeDetails((previous) => {
+      const target = previous.get(id);
+      if (!target) return previous;
+      const next = new Map(previous);
+      next.set(id, { ...target, userStatus });
+      return next;
+    });
+  };
+
+  const tasteProfile = useMemo(() => buildTasteProfile(Array.from(selectedAnimeDetails.values())), [selectedAnimeDetails]);
+  const rank = tasteProfile.rank;
   const displayedRank = quickTasteProfile?.rank || rank;
 
   const handleAnalyze = async (override?: { inputs: string[]; rank: OtakuRank }) => {
@@ -239,7 +251,11 @@ export default function App() {
         setAnalysisData(result);
       } catch (error) {
         console.error(error);
-        setAnalysisData({ roast: 'AI 通信失败', personality: '未知', recommendations: [] });
+        setAnalysisData({
+          roast: isUsingSessionDeepSeekKey() ? '个人 API Key 调用失败。请检查 Key、余额或网络后再试。' : 'AI 通信失败',
+          personality: '未知',
+          recommendations: []
+        });
       } finally {
         setIsAnalyzing(false);
       }
@@ -268,6 +284,7 @@ export default function App() {
         onSearch={() => setIsGlobalSearchOpen(true)}
         onOpenTaste={() => setIsTasteQuizOpen(true)}
         onOpenGame={() => setIsGameOpen(true)}
+        onOpenAISettings={() => setIsAISettingsOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         onOpenExport={() => setIsSqlModalOpen(true)}
       />
@@ -279,14 +296,21 @@ export default function App() {
           itemsPerSeason={itemsPerSeason}
           selectedIds={selectedIds}
           selectedAnime={Array.from(selectedAnimeDetails.values())}
-          rank={displayedRank}
+          profile={tasteProfile}
           onToggle={toggleAnime}
           onOpenArchive={() => navigate('record')}
           onAnalyze={() => void handleAnalyze()}
-          onOpenGame={() => setIsGameOpen(true)}
-          onOpenTaste={() => setIsTasteQuizOpen(true)}
         />
-      ) : <ArchivePage anime={Array.from(selectedAnimeDetails.values())} onToggle={(anime) => toggleAnime(String(anime.id), anime)} onBrowse={() => navigate('guide')} />}
+      ) : (
+        <ArchivePage
+          anime={Array.from(selectedAnimeDetails.values())}
+          profile={tasteProfile}
+          onToggle={(anime) => toggleAnime(String(anime.id), anime)}
+          onSetStatus={(anime, status) => handleUpdateAnimeStatus(String(anime.id), status)}
+          onBrowse={() => navigate('guide')}
+          onAnalyze={() => void handleAnalyze()}
+        />
+      )}
 
       <Suspense fallback={null}>
         {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} />}
@@ -310,6 +334,7 @@ export default function App() {
             onClearSelection={handleClearSelection}
           />
         )}
+        {isAISettingsOpen && <AISettingsModal isOpen={isAISettingsOpen} onClose={() => setIsAISettingsOpen(false)} />}
         {isGlobalSearchOpen && <GlobalAnimeSearchModal isOpen={isGlobalSearchOpen} onClose={() => setIsGlobalSearchOpen(false)} selectedIds={selectedIds} onToggle={(anime) => toggleAnime(String(anime.id), anime)} minYear={DEFAULT_START_YEAR} maxYear={DEFAULT_END_YEAR} />}
       </Suspense>
     </div>

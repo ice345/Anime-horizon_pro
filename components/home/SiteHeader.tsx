@@ -9,6 +9,7 @@ interface SiteHeaderProps {
   onSearch: () => void;
   onOpenTaste: () => void;
   onOpenGame: () => void;
+  onOpenAISettings: () => void;
   onOpenSettings: () => void;
   onOpenExport: () => void;
 }
@@ -33,6 +34,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
   onSearch,
   onOpenTaste,
   onOpenGame,
+  onOpenAISettings,
   onOpenSettings,
   onOpenExport
 }) => {
@@ -78,6 +80,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
             <div className="absolute right-0 top-12 z-40 w-44 rounded-[var(--ah-radius-md)] border border-yearbook-line bg-yearbook-surface p-2 shadow-[var(--ah-shadow-soft)]">
               <button type="button" onClick={() => handleAction(onOpenTaste)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">填写偏好画像</button>
               <button type="button" onClick={() => handleAction(onOpenGame)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">社团小游戏</button>
+              <button type="button" onClick={() => handleAction(onOpenAISettings)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">AI 与隐私</button>
               <button type="button" onClick={() => handleAction(onOpenExport)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">导出年鉴数据</button>
               <button type="button" onClick={() => handleAction(onOpenSettings)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">数据设置</button>
             </div>
@@ -93,6 +96,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
             <button type="button" onClick={() => handleAction(onShowFeatured)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">推荐</button>
             <button type="button" onClick={() => handleAction(onOpenTaste)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">偏好画像</button>
             <button type="button" onClick={() => handleAction(onOpenGame)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">小游戏</button>
+            <button type="button" onClick={() => handleAction(onOpenAISettings)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">AI 与隐私</button>
             <button type="button" onClick={() => handleAction(onOpenSettings)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">设置</button>
           </div>
         </nav>

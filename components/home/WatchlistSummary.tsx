@@ -1,16 +1,25 @@
 import React from 'react';
-import { Anime } from '../../types';
+import { TasteProfile } from '../../services/tasteProfile';
+import { Anime, UserAnimeStatus } from '../../types';
 
 interface WatchlistSummaryProps {
   selectedAnime: Anime[];
+  profile: TasteProfile;
   onOpenArchive: () => void;
   onAnalyze: () => void;
 }
 
-export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnime, onOpenArchive, onAnalyze }) => {
-  const airing = selectedAnime.filter((item) => item.status === 'RELEASING').length;
-  const completed = selectedAnime.filter((item) => item.status === 'FINISHED').length;
-  const planned = Math.max(0, selectedAnime.length - airing - completed);
+const archiveStatusText: Record<UserAnimeStatus, string> = {
+  PLAN: '想看',
+  WATCHING: '追更中',
+  COMPLETED: '已看完'
+};
+
+export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnime, profile, onOpenArchive, onAnalyze }) => {
+  const countByStatus = (status: UserAnimeStatus) => selectedAnime.filter((item) => (item.userStatus || 'PLAN') === status).length;
+  const watching = countByStatus('WATCHING');
+  const completed = countByStatus('COMPLETED');
+  const planned = countByStatus('PLAN');
   const recent = selectedAnime.slice(-3).reverse();
 
   return (
@@ -21,12 +30,22 @@ export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnim
           <h2 id="watchlist-title" className="font-jp text-2xl font-medium text-yearbook-ink">我的动画年鉴</h2>
           <p className="mt-2 text-sm leading-6 text-yearbook-muted">每次收录都会进入你的推荐列表，也是鉴赏档案读取的个人资料库。</p>
         </div>
-        <span className="pt-1 text-4xl font-medium text-yearbook-pink">{selectedAnime.length}</span>
+        <div className="text-right">
+          <span className="block text-4xl font-medium text-yearbook-pink">{profile.score}</span>
+          <span className="text-[11px] text-yearbook-muted">二次元浓度</span>
+        </div>
+      </div>
+
+      <div className="mt-4 border-l-2 border-yearbook-pink bg-rose-50/65 px-3 py-2.5">
+        <p className="text-sm font-medium text-yearbook-ink">当前画像：{profile.rank}</p>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {profile.labels.map((label) => <span key={label} className="border border-rose-100 bg-white/70 px-2 py-1 text-[11px] text-yearbook-muted">{label}</span>)}
+        </div>
       </div>
 
       <dl className="mt-5 grid grid-cols-3 border-y border-rose-100 py-4 text-center">
-        <div><dt className="text-[11px] text-yearbook-muted">追更</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{airing}</dd></div>
-        <div className="border-x border-rose-100"><dt className="text-[11px] text-yearbook-muted">完结</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{completed}</dd></div>
+        <div><dt className="text-[11px] text-yearbook-muted">追更</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{watching}</dd></div>
+        <div className="border-x border-rose-100"><dt className="text-[11px] text-yearbook-muted">已看完</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{completed}</dd></div>
         <div><dt className="text-[11px] text-yearbook-muted">想看</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{planned}</dd></div>
       </dl>
 
@@ -36,15 +55,15 @@ export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnim
             <img src={item.coverImage.large || item.coverImage.extraLarge} alt="" className="h-10 w-8 rounded-[5px] object-cover" loading="lazy" />
             <div className="min-w-0">
               <p className="truncate text-sm font-medium text-yearbook-ink">{item.title.native || item.title.romaji}</p>
-              <p className="mt-0.5 text-[11px] text-yearbook-muted">{item.status === 'RELEASING' ? '正在追更' : '收入年鉴'}</p>
+              <p className="mt-0.5 text-[11px] text-yearbook-muted">{archiveStatusText[item.userStatus || 'PLAN']}</p>
             </div>
           </div>
         )) : <p className="py-4 text-sm leading-6 text-yearbook-muted">还没有收录。点一部作品，让它成为你年鉴里的第一条推荐。</p>}
       </div>
 
-      <div className="mt-5 flex items-center gap-4 border-t border-rose-100 pt-4">
+      <div className="mt-5 flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-rose-100 pt-4">
         <button type="button" onClick={onOpenArchive} className="text-sm font-medium text-yearbook-ink underline decoration-rose-200 underline-offset-4 transition hover:text-yearbook-sky">打开推荐列表</button>
-        <button type="button" onClick={onAnalyze} className="text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink">生成鉴赏档案</button>
+        <button type="button" onClick={onAnalyze} className="border border-sky-200 bg-white px-3 py-2 text-sm font-medium text-yearbook-sky transition hover:border-sky-300 hover:bg-yearbook-blue">生成鉴赏档案</button>
       </div>
     </aside>
   );
