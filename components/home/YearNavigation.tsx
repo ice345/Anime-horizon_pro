@@ -5,12 +5,14 @@ interface YearNavigationProps {
   activeYear: number;
   onSelect: (year: number) => void;
   onOpenSettings: () => void;
+  emptyLabel?: string;
 }
 
-export const YearNavigation: React.FC<YearNavigationProps> = ({ years, activeYear, onSelect, onOpenSettings }) => (
+export const YearNavigation: React.FC<YearNavigationProps> = ({ years, activeYear, onSelect, onOpenSettings, emptyLabel }) => (
   <nav aria-label="年份导航" className="relative z-20 border-b border-yearbook-line bg-yearbook-surface/70">
     <div className="mx-auto flex max-w-[var(--ah-page-width)] items-center gap-2 overflow-x-auto px-5 py-3 scrollbar-hide md:px-8">
       <span className="mr-2 shrink-0 text-[11px] font-semibold uppercase tracking-[0.2em] text-yearbook-muted">Year</span>
+      {!years.length && <span className="shrink-0 text-sm text-yearbook-muted">{emptyLabel || '暂无年份'}</span>}
       {years.map((year) => {
         const active = year === activeYear;
         return (

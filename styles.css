@@ -1,0 +1,36 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: "Outfit", "Noto Sans SC", sans-serif;
+  --font-jp: "Zen Maru Gothic", sans-serif;
+
+  --color-anime-dark: var(--ah-paper);
+  --color-anime-card: var(--ah-surface);
+  --color-anime-primary: var(--ah-primary);
+  --color-anime-accent: var(--ah-pink);
+  --color-anime-highlight: var(--ah-primary);
+
+  --color-yearbook-paper: var(--ah-paper);
+  --color-yearbook-surface: var(--ah-surface);
+  --color-yearbook-blue: var(--ah-surface-blue);
+  --color-yearbook-sky: var(--ah-primary);
+  --color-yearbook-ink: var(--ah-ink);
+  --color-yearbook-muted: var(--ah-muted);
+  --color-yearbook-pink: var(--ah-pink);
+  --color-yearbook-line: var(--ah-border);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-float-delayed: float 6s ease-in-out 3s infinite;
+  --animate-pulse-slow: pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  --animate-fade-in: fadeIn 0.5s ease-out forwards;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-15px); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}

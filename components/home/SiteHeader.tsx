@@ -5,13 +5,14 @@ type HomeView = 'guide' | 'record';
 interface SiteHeaderProps {
   activeView: HomeView;
   onNavigate: (view: HomeView) => void;
-  onShowFeatured: () => void;
+  onOpenRecommendations: () => void;
   onSearch: () => void;
   onOpenTaste: () => void;
   onOpenGame: () => void;
   onOpenAISettings: () => void;
   onOpenSettings: () => void;
   onOpenExport: () => void;
+  onOpenImport: () => void;
 }
 
 const SearchIcon = () => (
@@ -30,13 +31,14 @@ const MenuIcon = () => (
 export const SiteHeader: React.FC<SiteHeaderProps> = ({
   activeView,
   onNavigate,
-  onShowFeatured,
+  onOpenRecommendations,
   onSearch,
   onOpenTaste,
   onOpenGame,
   onOpenAISettings,
   onOpenSettings,
-  onOpenExport
+  onOpenExport,
+  onOpenImport
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -62,7 +64,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
         <nav aria-label="主导航" className="hidden items-center gap-6 md:flex">
           <button type="button" onClick={() => handleAction(() => onNavigate('guide'))} className={navItemClass(activeView === 'guide')}>首页</button>
           <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className={navItemClass(activeView === 'record')}>我的年鉴</button>
-          <button type="button" onClick={() => handleAction(onShowFeatured)} className={navItemClass(false)}>推荐</button>
+          <button type="button" onClick={() => handleAction(onOpenRecommendations)} className={navItemClass(false)}>推荐</button>
         </nav>
 
         <div className="relative flex items-center gap-1">
@@ -82,6 +84,7 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
               <button type="button" onClick={() => handleAction(onOpenGame)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">社团小游戏</button>
               <button type="button" onClick={() => handleAction(onOpenAISettings)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">AI 与隐私</button>
               <button type="button" onClick={() => handleAction(onOpenExport)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">导出年鉴数据</button>
+              <button type="button" onClick={() => handleAction(onOpenImport)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">导入年鉴数据</button>
               <button type="button" onClick={() => handleAction(onOpenSettings)} className="w-full rounded-lg px-3 py-2 text-left text-sm text-yearbook-ink hover:bg-yearbook-blue">数据设置</button>
             </div>
           )}
@@ -93,10 +96,12 @@ export const SiteHeader: React.FC<SiteHeaderProps> = ({
           <div className="grid grid-cols-2 gap-1">
             <button type="button" onClick={() => handleAction(() => onNavigate('guide'))} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">首页</button>
             <button type="button" onClick={() => handleAction(() => onNavigate('record'))} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">我的年鉴</button>
-            <button type="button" onClick={() => handleAction(onShowFeatured)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">推荐</button>
+            <button type="button" onClick={() => handleAction(onOpenRecommendations)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">推荐</button>
             <button type="button" onClick={() => handleAction(onOpenTaste)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">偏好画像</button>
             <button type="button" onClick={() => handleAction(onOpenGame)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">小游戏</button>
             <button type="button" onClick={() => handleAction(onOpenAISettings)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">AI 与隐私</button>
+            <button type="button" onClick={() => handleAction(onOpenExport)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">导出年鉴数据</button>
+            <button type="button" onClick={() => handleAction(onOpenImport)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">导入年鉴数据</button>
             <button type="button" onClick={() => handleAction(onOpenSettings)} className="rounded-lg px-3 py-3 text-left text-sm font-medium text-yearbook-ink hover:bg-yearbook-blue">设置</button>
           </div>
         </nav>

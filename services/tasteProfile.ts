@@ -3,7 +3,10 @@ import { Anime, OtakuRank, UserAnimeStatus } from '../types';
 export interface TasteProfile {
   rank: OtakuRank;
   score: number;
+  confidence: number;
+  evidenceCount: number;
   labels: string[];
+  labelReasons: Record<string, string>;
   metrics: {
     depth: number;
     niche: number;
@@ -11,109 +14,177 @@ export interface TasteProfile {
     eraBreadth: number;
     diversity: number;
     engagement: number;
+    formatBreadth: number;
   };
 }
 
 const clamp = (value: number, min = 0, max = 100) => Math.min(max, Math.max(min, value));
-const average = (values: number[], fallback = 0) => values.length ? values.reduce((total, value) => total + value, 0) / values.length : fallback;
 
-const userStatusWeight: Record<UserAnimeStatus, number> = {
+const statusEvidence: Record<UserAnimeStatus, number> = {
+  PLAN: 0.35,
+  WATCHING: 0.72,
+  COMPLETED: 1
+};
+
+const engagementValue: Record<UserAnimeStatus, number> = {
   PLAN: 28,
-  WATCHING: 70,
+  WATCHING: 72,
   COMPLETED: 100
 };
 
-const normalizeStatus = (status?: UserAnimeStatus) => status && userStatusWeight[status] ? status : 'PLAN';
+const normalizeStatus = (status?: UserAnimeStatus): UserAnimeStatus => status && statusEvidence[status] ? status : 'PLAN';
+const itemWeight = (anime: Anime) => statusEvidence[normalizeStatus(anime.userStatus)];
 
-// IMDb-style weighted rating: a very high score only becomes persuasive once a work has enough viewers.
-const weightedScore = (anime: Anime) => {
-  const averageScore = anime.averageScore ?? 70;
-  const confidence = Math.max(0, anime.popularity || 0);
-  const priorScore = 70;
-  const priorWeight = 3000;
-  const score = ((confidence / (confidence + priorWeight)) * averageScore) + ((priorWeight / (confidence + priorWeight)) * priorScore);
-  return clamp((score - 55) * 2.22);
+const weightedAverage = (anime: Anime[], scorer: (item: Anime) => number, fallback = 0) => {
+  const totalWeight = anime.reduce((sum, item) => sum + itemWeight(item), 0);
+  if (!totalWeight) return fallback;
+  return anime.reduce((sum, item) => sum + (scorer(item) * itemWeight(item)), 0) / totalWeight;
 };
 
-// Log-normalized inverse popularity gives long-tail works more signal without treating obscurity as automatically better.
-const rarityScore = (anime: Anime) => {
+// Bayesian shrinkage: low-popularity titles stay closer to the catalogue prior instead of
+// receiving an exaggerated quality signal from a small rating sample.
+const bayesianQuality = (anime: Anime) => {
+  const rating = anime.averageScore ?? 70;
+  const votesProxy = Math.max(0, anime.popularity || 0);
+  const cataloguePrior = 70;
+  const priorWeight = 5000;
+  const estimate = ((votesProxy * rating) + (priorWeight * cataloguePrior)) / (votesProxy + priorWeight);
+  return clamp(((estimate - 58) / 27) * 100);
+};
+
+// Popularity is log-scaled because AniList popularity has a long-tail distribution.
+const longTailScore = (anime: Anime) => {
   if (!anime.popularity) return 50;
   const lowerBound = Math.log1p(500);
-  const upperBound = Math.log1p(120000);
-  const normalizedPopularity = clamp((Math.log1p(anime.popularity) - lowerBound) / (upperBound - lowerBound), 0, 1);
-  return (1 - normalizedPopularity) * 100;
+  const upperBound = Math.log1p(200000);
+  const position = clamp((Math.log1p(anime.popularity) - lowerBound) / (upperBound - lowerBound), 0, 1);
+  return (1 - position) * 100;
 };
 
-const genreDiversity = (anime: Anime[]) => {
-  const genres = anime.flatMap((item) => item.genres || []).filter(Boolean);
-  if (!genres.length) return 0;
+const shannonDiversity = (anime: Anime[]) => {
   const counts = new Map<string, number>();
-  genres.forEach((genre) => counts.set(genre, (counts.get(genre) || 0) + 1));
-  const total = genres.length;
+  anime.forEach((item) => {
+    const weight = itemWeight(item);
+    (item.genres || []).forEach((genre) => counts.set(genre, (counts.get(genre) || 0) + weight));
+  });
+  if (counts.size < 2) return 0;
+  const total = Array.from(counts.values()).reduce((sum, value) => sum + value, 0);
   const entropy = -Array.from(counts.values()).reduce((sum, count) => {
     const probability = count / total;
-    return sum + probability * Math.log(probability);
+    return sum + (probability * Math.log(probability));
   }, 0);
-  const maxEntropy = Math.log(Math.max(2, counts.size));
-  const entropyScore = maxEntropy ? (entropy / maxEntropy) * 100 : 0;
-  return entropyScore * Math.min(1, anime.length / 16);
+  return clamp((entropy / Math.log(counts.size)) * 100);
 };
 
-const eraBreadth = (anime: Anime[]) => {
+const formatBreadth = (anime: Anime[]) => {
+  const formats = new Set(anime.map((item) => item.format).filter(Boolean));
+  return clamp(((formats.size - 1) / 4) * 100);
+};
+
+const eraBreadth = (anime: Anime[], confidence: number) => {
   const years = anime.map((item) => item.seasonYear).filter((year): year is number => Number.isFinite(year) && year > 0);
   if (!years.length) return 0;
-  const range = Math.max(...years) - Math.min(...years);
+  const currentYear = new Date().getFullYear();
+  const span = Math.max(...years) - Math.min(...years);
   const decades = new Set(years.map((year) => Math.floor(year / 10))).size;
-  const rangeScore = clamp((Math.sqrt(range) / Math.sqrt(26)) * 100);
-  const decadeScore = clamp((decades / 4) * 100);
-  return ((rangeScore * 0.65) + (decadeScore * 0.35)) * Math.min(1, anime.length / 18);
+  const classicShare = weightedAverage(anime, (item) => item.seasonYear <= currentYear - 10 ? 100 : 0);
+  const raw = (clamp(Math.sqrt(span / 30) * 100) * 0.48)
+    + (clamp(((decades - 1) / 3) * 100) * 0.32)
+    + (classicShare * 0.20);
+  return raw * (0.35 + (confidence * 0.0065));
 };
 
-const moeAffinity = (anime: Anime[]) => average(anime.map((item) => {
+const moeAffinity = (anime: Anime[]) => weightedAverage(anime, (item) => {
   const genres = new Set(item.genres || []);
   let affinity = 0;
-  if (genres.has('Slice of Life')) affinity += 0.58;
-  if (genres.has('Music')) affinity += 0.28;
-  if (genres.has('Romance')) affinity += 0.16;
-  if (genres.has('Comedy')) affinity += 0.1;
-  return Math.min(1, affinity);
-})) * 100;
+  if (genres.has('Slice of Life')) affinity += 48;
+  if (genres.has('Music')) affinity += 22;
+  if (genres.has('Romance')) affinity += 15;
+  if (genres.has('Comedy')) affinity += 9;
+  return clamp(affinity);
+});
 
-const selectRank = (count: number, score: number, niche: number, curation: number, breadth: number, moe: number): OtakuRank => {
-  if (count < 4 && score < 16) return '现充';
-  if (score < 29 || count < 8) return '路人';
-  if (score < 47 || count < 18) return '动画爱好者';
-  if (score >= 87 && count >= 100 && niche >= 52 && breadth >= 48) return '动漫之神';
-  if (score >= 73 && count >= 45 && niche >= 58 && curation >= 53) return '婆罗门';
-  if (score >= 52 && count >= 20 && moe >= 46) return '萌豚';
+const selectRank = (evidence: number, score: number, metrics: TasteProfile['metrics'], moe: number): OtakuRank => {
+  if (evidence < 0.7 || score < 14) return '现充';
+  if (evidence < 5 || score < 27) return '路人';
+  if (evidence < 12 || score < 43) return '动画爱好者';
+  if (evidence >= 85 && score >= 86 && metrics.niche >= 58 && metrics.eraBreadth >= 62 && metrics.diversity >= 62) return '动漫之神';
+  if (evidence >= 35 && score >= 68 && metrics.niche >= 62 && metrics.curation >= 55 && metrics.eraBreadth >= 48) return '婆罗门';
+  if (evidence >= 18 && score >= 50 && moe >= 58) return '萌豚';
   return '老二次元';
 };
 
-export const buildTasteProfile = (anime: Anime[]): TasteProfile => {
-  const count = anime.length;
-  const depth = clamp((Math.log1p(count) / Math.log1p(120)) * 100);
-  const reliability = Math.min(1, count / 16);
-  const niche = average(anime.map(rarityScore), 0) * reliability;
-  const curation = average(anime.map(weightedScore), 0) * reliability;
-  const diversity = genreDiversity(anime);
-  const era = eraBreadth(anime);
-  const engagement = average(anime.map((item) => userStatusWeight[normalizeStatus(item.userStatus)]), 0);
-  const score = Math.round(clamp(
-    (depth * 0.25) +
-    (niche * 0.22) +
-    (curation * 0.16) +
-    (era * 0.15) +
-    (diversity * 0.12) +
-    (engagement * 0.10)
-  ));
-  const moe = moeAffinity(anime);
-  const rank = selectRank(count, score, niche, curation, era, moe);
-  const metrics = { depth: Math.round(depth), niche: Math.round(niche), curation: Math.round(curation), eraBreadth: Math.round(era), diversity: Math.round(diversity), engagement: Math.round(engagement) };
-  const labels = [
-    metrics.niche >= 55 ? '长尾探索' : '主流涉猎',
-    metrics.eraBreadth >= 52 ? '跨年代补番' : '当代追番',
-    metrics.diversity >= 50 ? '题材广谱' : '口味聚焦'
-  ];
+const buildLabels = (metrics: TasteProfile['metrics'], confidence: number) => {
+  if (confidence < 24) {
+    return {
+      labels: ['画像形成中', '样本待积累', '先记再评'],
+      reasons: {
+        画像形成中: `当前样本置信度 ${confidence}%，暂不对口味下强结论。`,
+        样本待积累: '继续标记追更或已看完，画像会比单纯加入想看更稳定。',
+        先记再评: '评分会随有效观看样本增加逐步收敛。'
+      }
+    };
+  }
 
-  return { rank, score, labels, metrics };
+  const exploration = metrics.niche >= 62 ? '长尾探索' : metrics.niche >= 44 ? '主流兼顾' : '热门导向';
+  const era = metrics.eraBreadth >= 60 ? '跨年代补番' : metrics.eraBreadth >= 34 ? '新旧并看' : '当代追番';
+  const diversity = metrics.diversity >= 68 ? '题材广谱' : metrics.diversity >= 44 ? '多线口味' : '口味专注';
+  const engagement = metrics.engagement >= 78 ? '观看落实派' : metrics.engagement >= 52 ? '追番进行时' : '愿望单收藏家';
+
+  return {
+    labels: [exploration, era, diversity, engagement],
+    reasons: {
+      [exploration]: `长尾探索指标 ${metrics.niche}：由作品人气的对数反向分位计算。`,
+      [era]: `年代跨度指标 ${metrics.eraBreadth}：综合年份跨度、跨越年代数和十年前作品占比。`,
+      [diversity]: `题材多样性 ${metrics.diversity}：使用归一化 Shannon 熵，并结合动画形式覆盖。`,
+      [engagement]: `观看投入 ${metrics.engagement}：想看、追更、已看完分别按 28、72、100 计分。`
+    }
+  };
+};
+
+export const buildTasteProfile = (anime: Anime[]): TasteProfile => {
+  const evidenceCount = anime.reduce((sum, item) => sum + itemWeight(item), 0);
+  const confidence = Math.round(clamp((1 - Math.exp(-evidenceCount / 16)) * 100));
+  const depth = clamp((1 - Math.exp(-evidenceCount / 34)) * 100);
+  const confidenceFactor = confidence / 100;
+  const nicheRaw = weightedAverage(anime, longTailScore, 50);
+  const curationRaw = weightedAverage(anime, bayesianQuality, 50);
+  const niche = 50 + ((nicheRaw - 50) * confidenceFactor);
+  const curation = 50 + ((curationRaw - 50) * confidenceFactor);
+  const formats = formatBreadth(anime);
+  const diversityRaw = (shannonDiversity(anime) * 0.82) + (formats * 0.18);
+  const diversity = diversityRaw * (0.30 + (confidenceFactor * 0.70));
+  const era = eraBreadth(anime, confidence);
+  const engagement = weightedAverage(anime, (item) => engagementValue[normalizeStatus(item.userStatus)], 0);
+
+  const score = Math.round(clamp(
+    (depth * 0.30)
+    + (niche * 0.16)
+    + (curation * 0.12)
+    + (era * 0.14)
+    + (diversity * 0.13)
+    + (engagement * 0.15)
+  ));
+
+  const metrics = {
+    depth: Math.round(depth),
+    niche: Math.round(niche),
+    curation: Math.round(curation),
+    eraBreadth: Math.round(era),
+    diversity: Math.round(diversity),
+    engagement: Math.round(engagement),
+    formatBreadth: Math.round(formats)
+  };
+  const rank = selectRank(evidenceCount, score, metrics, moeAffinity(anime));
+  const { labels, reasons } = buildLabels(metrics, confidence);
+
+  return {
+    rank,
+    score,
+    confidence,
+    evidenceCount: Math.round(evidenceCount * 10) / 10,
+    labels,
+    labelReasons: reasons,
+    metrics
+  };
 };

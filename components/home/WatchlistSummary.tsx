@@ -1,6 +1,7 @@
 import React from 'react';
 import { TasteProfile } from '../../services/tasteProfile';
 import { Anime, UserAnimeStatus } from '../../types';
+import { TasteMethodDetails } from './TasteMethodDetails';
 
 interface WatchlistSummaryProps {
   selectedAnime: Anime[];
@@ -39,9 +40,11 @@ export const WatchlistSummary: React.FC<WatchlistSummaryProps> = ({ selectedAnim
       <div className="mt-4 border-l-2 border-yearbook-pink bg-rose-50/65 px-3 py-2.5">
         <p className="text-sm font-medium text-yearbook-ink">当前画像：{profile.rank}</p>
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {profile.labels.map((label) => <span key={label} className="border border-rose-100 bg-white/70 px-2 py-1 text-[11px] text-yearbook-muted">{label}</span>)}
+          {profile.labels.map((label) => <span key={label} title={profile.labelReasons[label]} className="border border-rose-100 bg-white/70 px-2 py-1 text-[11px] text-yearbook-muted">{label}</span>)}
         </div>
       </div>
+
+      <div className="mt-4"><TasteMethodDetails profile={profile} /></div>
 
       <dl className="mt-5 grid grid-cols-3 border-y border-rose-100 py-4 text-center">
         <div><dt className="text-[11px] text-yearbook-muted">追更</dt><dd className="mt-1 text-lg font-medium text-yearbook-ink">{watching}</dd></div>

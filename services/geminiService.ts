@@ -1,37 +1,63 @@
-import { GoogleGenAI } from "@google/genai";
-
-const GEMINI_MODEL = 'gemini-2.5-flash';
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
-// 默认优先使用用户配置（当前 deepseek-v3.2），回退到通义千问系列较稳的档位
-const ALIYUN_MODEL = 'deepseek-v3.2';
-const ALIYUN_FALLBACK_MODELS = ['qwen-turbo','qwen-plus', 'qwen-flash', 'qwen3-max', 'qwen-max'];
-const ALIYUN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
 const TIMEOUT_MS = 12000;
 const env = import.meta.env;
-const GEMINI_API_KEY = env.VITE_GEMINI_API_KEY || env.VITE_API_KEY || env.GEMINI_API_KEY || env.API_KEY;
 const DEEPSEEK_PROXY_URL = env.VITE_DEEPSEEK_PROXY_URL || '/api/deepseek/chat';
-const ALIYUN_API_KEY = env.VITE_ALIYUN_API_KEY || env.ALIYUN_API_KEY;
-const PREFER_DEEPSEEK = env.VITE_USE_DEEPSEEK_FIRST !== 'false';
-const PREFER_ALIYUN = env.VITE_ALIYUN_ONLY === 'true' || env.VITE_USE_ALIYUN_FIRST === 'true';
-const SESSION_DEEPSEEK_KEY = 'anime-horizon-session-deepseek-key';
+const SESSION_AI_CONFIG_KEY = 'anime-horizon-session-ai-config';
+const LEGACY_SESSION_DEEPSEEK_KEY = 'anime-horizon-session-deepseek-key';
 
-export const getSessionDeepSeekApiKey = () => {
-  if (typeof window === 'undefined') return '';
-  return window.sessionStorage.getItem(SESSION_DEEPSEEK_KEY)?.trim() || '';
+export type SessionAIProvider = 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
+
+export interface SessionAIConfig {
+  provider: SessionAIProvider;
+  apiKey: string;
+  endpoint: string;
+  model: string;
+}
+
+const isSessionAIProvider = (value: unknown): value is SessionAIProvider => value === 'DEEPSEEK' || value === 'OPENAI_COMPATIBLE';
+
+export const getSessionAIConfig = (): SessionAIConfig | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(SESSION_AI_CONFIG_KEY);
+    if (raw) {
+      const config = JSON.parse(raw);
+      if (isSessionAIProvider(config?.provider) && config?.apiKey && config?.endpoint && config?.model) {
+        return {
+          provider: config.provider,
+          apiKey: String(config.apiKey).trim(),
+          endpoint: String(config.endpoint).trim(),
+          model: String(config.model).trim()
+        };
+      }
+    }
+
+    const legacyKey = window.sessionStorage.getItem(LEGACY_SESSION_DEEPSEEK_KEY)?.trim();
+    return legacyKey ? { provider: 'DEEPSEEK', apiKey: legacyKey, endpoint: DEEPSEEK_BASE_URL, model: DEEPSEEK_MODEL } : null;
+  } catch {
+    return null;
+  }
 };
 
-export const setSessionDeepSeekApiKey = (apiKey: string) => {
+export const setSessionAIConfig = (config: SessionAIConfig) => {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(SESSION_DEEPSEEK_KEY, apiKey.trim());
+  window.sessionStorage.setItem(SESSION_AI_CONFIG_KEY, JSON.stringify({
+    provider: config.provider,
+    apiKey: config.apiKey.trim(),
+    endpoint: config.endpoint.trim(),
+    model: config.model.trim()
+  }));
+  window.sessionStorage.removeItem(LEGACY_SESSION_DEEPSEEK_KEY);
 };
 
-export const clearSessionDeepSeekApiKey = () => {
+export const clearSessionAIConfig = () => {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.removeItem(SESSION_DEEPSEEK_KEY);
+  window.sessionStorage.removeItem(SESSION_AI_CONFIG_KEY);
+  window.sessionStorage.removeItem(LEGACY_SESSION_DEEPSEEK_KEY);
 };
 
-export const isUsingSessionDeepSeekKey = () => Boolean(getSessionDeepSeekApiKey());
+export const isUsingSessionAIConfig = () => Boolean(getSessionAIConfig());
 
 // Simple in-memory recency buckets to reduce repetition
 const recentEmojiTitles: string[] = [];
@@ -40,24 +66,6 @@ const rememberRecent = (bucket: string[], value: string, max = 6) => {
   if (bucket.includes(value)) return;
   bucket.unshift(value);
   if (bucket.length > max) bucket.pop();
-};
-
-let client: GoogleGenAI | null = null;
-
-const getClient = () => {
-  if (!client && GEMINI_API_KEY) {
-    client = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  }
-  return client;
-};
-
-const getAliyunKey = () => ALIYUN_API_KEY;
-
-const runWithTimeout = async <T>(promise: Promise<T>, timeoutMs = TIMEOUT_MS) => {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Request timeout')), timeoutMs))
-  ]);
 };
 
 const buildPrompt = (animeTitles: string[], rank: string) => `
@@ -244,52 +252,33 @@ const ensureShape = (data: any) => {
   return normalized;
 };
 
-const callGemini = async (prompt: string) => {
-  const ai = getClient();
-  if (!ai) {
-    throw new Error("API Key missing");
-  }
-
-  const response = await runWithTimeout(
-    ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    })
-  );
-
-  return ensureShape(parseJsonSafe(response.text));
-};
-
-const callDeepSeekDirect = async (prompt: string, apiKey: string) => {
+const callSessionAI = async (prompt: string, config: SessionAIConfig) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const res = await fetch(DEEPSEEK_BASE_URL, {
+    const res = await fetch(config.endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`
+        Authorization: `Bearer ${config.apiKey}`
       },
       body: JSON.stringify({
-        model: DEEPSEEK_MODEL,
+        model: config.model,
         messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
+        ...(config.provider === 'DEEPSEEK' ? { response_format: { type: 'json_object' } } : {})
       }),
       signal: controller.signal
     });
 
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`DeepSeek API Error ${res.status}: ${text}`);
+      throw new Error(`Personal AI API Error ${res.status}: ${text}`);
     }
 
     const data = await res.json();
     const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('DeepSeek response empty');
+    if (!content) throw new Error('Personal AI response empty');
     return parseJsonSafe(content);
   } finally {
     clearTimeout(timer);
@@ -297,10 +286,10 @@ const callDeepSeekDirect = async (prompt: string, apiKey: string) => {
 };
 
 const callDeepSeekRaw = async (prompt: string) => {
-  const sessionApiKey = getSessionDeepSeekApiKey();
-  if (sessionApiKey) {
-    // A personal key must never fall back to the site account after it is enabled.
-    return callDeepSeekDirect(prompt, sessionApiKey);
+  const sessionConfig = getSessionAIConfig();
+  if (sessionConfig) {
+    // A personal session provider must never fall back to the site account after it is enabled.
+    return callSessionAI(prompt, sessionConfig);
   }
 
   const callServerProxy = async () => {
@@ -328,116 +317,6 @@ const callDeepSeekRaw = async (prompt: string) => {
 
 const callDeepSeek = async (prompt: string) => ensureShape(await callDeepSeekRaw(prompt));
 
-const callAliyunOnce = async (prompt: string, model: string) => {
-  const apiKey = getAliyunKey();
-  if (!apiKey) {
-    throw new Error('ALIYUN_API_KEY missing');
-  }
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  const res = await fetch(ALIYUN_BASE_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: 'user', content: prompt }],
-      response_format: { type: 'json_object' }
-    }),
-    signal: controller.signal
-  });
-
-  clearTimeout(timer);
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`Aliyun API Error ${res.status}: ${text}`);
-  }
-
-  const data = await res.json();
-  const content = data?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('Aliyun response empty');
-  }
-  return ensureShape(parseJsonSafe(content));
-};
-
-// Aliyun raw JSON helper (no shape normalization) for game endpoints
-const callAliyunRaw = async (prompt: string) => {
-  const apiKey = getAliyunKey();
-  if (!apiKey) {
-    throw new Error('ALIYUN_API_KEY missing');
-  }
-
-  const uniqueModels = [ALIYUN_MODEL, ...ALIYUN_FALLBACK_MODELS].filter((m, idx, arr) => m && arr.indexOf(m) === idx);
-  let lastError: unknown;
-
-  for (const model of uniqueModels) {
-    try {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-      const res = await fetch(ALIYUN_BASE_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: 'user', content: prompt }],
-          response_format: { type: 'json_object' }
-        }),
-        signal: controller.signal
-      });
-      clearTimeout(timer);
-
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`Aliyun API Error ${res.status}: ${text}`);
-      }
-
-      const data = await res.json();
-      const content = data?.choices?.[0]?.message?.content;
-      if (!content) {
-        throw new Error('Aliyun response empty');
-      }
-      return parseJsonSafe(content);
-    } catch (err) {
-      lastError = err;
-      console.warn(`Aliyun (raw) model failed:`, err);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error('Aliyun raw call failed');
-};
-
-const callAliyun = async (prompt: string) => {
-  const apiKey = getAliyunKey();
-  if (!apiKey) {
-    throw new Error('ALIYUN_API_KEY missing');
-  }
-
-  const uniqueModels = [ALIYUN_MODEL, ...ALIYUN_FALLBACK_MODELS].filter(
-    (m, idx, arr) => m && arr.indexOf(m) === idx
-  );
-
-  let lastError: unknown;
-  for (const model of uniqueModels) {
-    try {
-      return await callAliyunOnce(prompt, model);
-    } catch (err) {
-      lastError = err;
-      console.warn(`Aliyun model ${model} failed:`, err);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error('Aliyun call failed');
-};
-
 const normalizeResult = (data: any) => {
   if (!data) return data;
   if (!data.roast && data.analysis) {
@@ -448,41 +327,7 @@ const normalizeResult = (data: any) => {
 
 export const analyzeAnimeTaste = async (animeTitles: string[], rank: string) => {
   const prompt = buildPrompt(animeTitles, rank);
-
-  const tryDeepSeek = async () => normalizeResult(await callDeepSeek(prompt));
-  const tryGemini = async () => normalizeResult(await callGemini(prompt));
-  const tryAliyun = async () => normalizeResult(await callAliyun(prompt));
-
-  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
-
-  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
-    try {
-      return await tryDeepSeek();
-    } catch (e) {
-      console.warn('DeepSeek preferred path failed, trying Gemini/Aliyun:', e);
-    }
-  }
-
-  if (PREFER_ALIYUN) {
-    try {
-      return await tryAliyun();
-    } catch (e) {
-      console.warn('Aliyun preferred path failed, trying Gemini:', e);
-      return await tryGemini();
-    }
-  }
-
-  try {
-    return await tryGemini();
-  } catch (error) {
-    console.warn('Gemini failed, falling back to DeepSeek/Aliyun:', error);
-    try {
-      return await tryDeepSeek();
-    } catch (deepseekError) {
-      console.warn('DeepSeek fallback failed, trying Aliyun:', deepseekError);
-    }
-    return await tryAliyun();
-  }
+  return normalizeResult(await callDeepSeek(prompt));
 };
 
 // --- GAME SERVICE ---
@@ -532,76 +377,7 @@ export const startAnimeGame = async (): Promise<GameCharacter> => {
     }
   `;
 
-  const tryGemini = async () => {
-    const ai = getClient();
-    if (!ai) throw new Error("API Key missing");
-    const response = await runWithTimeout(
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      })
-    );
-    return normalizeCharacter(parseJsonSafe(response.text));
-  };
-
-  const tryDeepSeek = async () => normalizeCharacter(await callDeepSeekRaw(prompt));
-  const tryAliyun = async () => normalizeCharacter(await callAliyunRaw(prompt));
-  const canAliyun = Boolean(getAliyunKey());
-
-  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
-
-  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
-    try {
-      return await tryDeepSeek();
-    } catch (e) {
-      console.warn('DeepSeek game start failed, trying Gemini/Aliyun:', e);
-    }
-  }
-
-  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
-    try {
-      return await tryAliyun();
-    } catch (e) {
-      console.warn('Aliyun game start failed, trying Gemini:', e);
-      try {
-        return await tryDeepSeek();
-      } catch {
-        return await tryGemini();
-      }
-    }
-  }
-
-  if (canAliyun) {
-    try {
-      // Race both providers; take the fastest success to reduce wait
-      const providers = [tryGemini(), tryDeepSeek(), tryAliyun()];
-      return await Promise.any(providers);
-    } catch (e) {
-      console.warn('Race failed, fallback Gemini->Aliyun', e);
-      try {
-        return await tryGemini();
-      } catch {
-        try {
-          return await tryDeepSeek();
-        } catch {
-          return await tryAliyun();
-        }
-      }
-    }
-  }
-
-  try {
-    return await tryGemini();
-  } catch (e) {
-    console.warn('Gemini game start failed, trying DeepSeek/Aliyun:', e);
-    try {
-      return await tryDeepSeek();
-    } catch (deepseekError) {
-      console.warn('DeepSeek game start failed, trying Aliyun:', deepseekError);
-    }
-    return await tryAliyun();
-  }
+  return normalizeCharacter(await callDeepSeekRaw(prompt));
 };
 
 export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
@@ -622,77 +398,7 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
     }
   `;
 
-  const tryGemini = async (currentSeed: number) => {
-    const ai = getClient();
-    if (!ai) throw new Error("API Key missing");
-    const response = await runWithTimeout(
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: buildPrompt(currentSeed),
-        config: { responseMimeType: 'application/json' }
-      })
-    );
-    return parseJsonSafe(response.text);
-  };
-
-  const tryAliyun = async (currentSeed: number) => callAliyunRaw(buildPrompt(currentSeed));
-  const tryDeepSeek = async (currentSeed: number) => callDeepSeekRaw(buildPrompt(currentSeed));
-  const canAliyun = Boolean(getAliyunKey());
-
-  const runOnce = async (currentSeed: number) => {
-    if (isUsingSessionDeepSeekKey()) return tryDeepSeek(currentSeed);
-
-    if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
-      try {
-        return await tryDeepSeek(currentSeed);
-      } catch (e) {
-        console.warn('DeepSeek emoji game failed, trying Gemini/Aliyun:', e);
-      }
-    }
-
-    if (PREFER_ALIYUN || !GEMINI_API_KEY) {
-      try {
-        return await tryAliyun(currentSeed);
-      } catch (e) {
-        console.warn('Aliyun emoji game failed, trying DeepSeek/Gemini:', e);
-        try {
-          return await tryDeepSeek(currentSeed);
-        } catch {
-          return await tryGemini(currentSeed);
-        }
-      }
-    }
-
-    if (canAliyun) {
-      try {
-        const providers = [tryGemini(currentSeed), tryDeepSeek(currentSeed), tryAliyun(currentSeed)];
-        return await Promise.any(providers);
-      } catch (e) {
-        console.warn('Emoji race failed, fallback Gemini->Aliyun', e);
-        try {
-          return await tryGemini(currentSeed);
-        } catch {
-          try {
-            return await tryDeepSeek(currentSeed);
-          } catch {
-            return await tryAliyun(currentSeed);
-          }
-        }
-      }
-    }
-
-    try {
-      return await tryGemini(currentSeed);
-    } catch (e) {
-      console.warn('Gemini emoji game failed, trying DeepSeek/Aliyun:', e);
-      try {
-        return await tryDeepSeek(currentSeed);
-      } catch (deepseekError) {
-        console.warn('DeepSeek emoji game failed, trying Aliyun:', deepseekError);
-      }
-      return await tryAliyun(currentSeed);
-    }
-  };
+  const runOnce = async (currentSeed: number) => callDeepSeekRaw(buildPrompt(currentSeed));
 
   // Avoid repeated hot titles by rerolling if recently served
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -727,62 +433,10 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
     flavorText: cleanGameText(value?.flavorText || '信号稳定，但答案仍在雾中。', [secret.name, secret.source])
   } as { answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string });
 
-  const tryGemini = async () => {
-    const ai = getClient();
-    if (!ai) throw new Error("API Key missing");
-    const response = await runWithTimeout(
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      })
-    );
-    return normalizeOracle(parseJsonSafe(response.text));
-  };
-
-  const tryDeepSeek = async () => normalizeOracle(await callDeepSeekRaw(prompt));
-  const tryAliyun = async () => normalizeOracle(await callAliyunRaw(prompt));
-
-  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
-
-  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
-    try {
-      return await tryDeepSeek();
-    } catch (e) {
-      console.warn('DeepSeek oracle failed, trying Gemini/Aliyun:', e);
-    }
-  }
-
-  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
-    try {
-      return await tryAliyun();
-    } catch (e) {
-      console.warn('Aliyun oracle failed, trying DeepSeek/Gemini:', e);
-      try {
-        return await tryDeepSeek();
-      } catch {
-        try {
-        return await tryGemini();
-        } catch {
-          return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
-        }
-      }
-    }
-  }
-
   try {
-    return await tryGemini();
-  } catch (error) {
-    console.warn('Gemini oracle failed, trying DeepSeek/Aliyun:', error);
-    try {
-      return await tryDeepSeek();
-    } catch {
-      try {
-        return await tryAliyun();
-      } catch {
-        return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
-      }
-    }
+    return normalizeOracle(await callDeepSeekRaw(prompt));
+  } catch {
+    return { answer: 'UNKNOWN', flavorText: '(杂音) ...信号受到干扰...' };
   }
 };
 
@@ -797,66 +451,10 @@ export const checkGameWin = async (secret: GameCharacter | EmojiGameChallenge, u
     JSON: { "correct": boolean }
   `;
 
-  const tryGemini = async () => {
-    const ai = getClient();
-    if (!ai) throw new Error("API Key missing");
-    const response = await runWithTimeout(
-      ai.models.generateContent({
-        model: GEMINI_MODEL,
-        contents: prompt,
-        config: { responseMimeType: 'application/json' }
-      })
-    );
-    const res = parseJsonSafe(response.text);
-    return res.correct === true;
-  };
-
-  const tryDeepSeek = async () => {
+  try {
     const res = await callDeepSeekRaw(prompt);
     return res.correct === true;
-  };
-
-  if (isUsingSessionDeepSeekKey()) return tryDeepSeek();
-
-  if (PREFER_DEEPSEEK && !PREFER_ALIYUN) {
-    try {
-      return await tryDeepSeek();
-    } catch (e) {
-      console.warn('DeepSeek checkWin failed, trying Gemini/Aliyun:', e);
-    }
-  }
-
-  if (PREFER_ALIYUN || !GEMINI_API_KEY) {
-    try {
-      const res = await callAliyunRaw(prompt);
-      return res.correct === true;
-    } catch (e) {
-      console.warn('Aliyun checkWin failed, trying DeepSeek/Gemini:', e);
-      try {
-        return await tryDeepSeek();
-      } catch {
-        try {
-          return await tryGemini();
-        } catch {
-          return false;
-        }
-      }
-    }
-  }
-
-  try {
-    return await tryGemini();
-  } catch (error) {
-    console.warn('Gemini checkWin failed, trying DeepSeek/Aliyun:', error);
-    try {
-      return await tryDeepSeek();
-    } catch {
-      try {
-      const res = await callAliyunRaw(prompt);
-      return res.correct === true;
-      } catch {
-        return false;
-      }
-    }
+  } catch {
+    return false;
   }
 };

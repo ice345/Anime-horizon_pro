@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Anime } from '../types';
+import { generateArchiveSql } from '../services/archiveSql';
 
 interface SqlExportModalProps {
   isOpen: boolean;
@@ -8,90 +9,59 @@ interface SqlExportModalProps {
 }
 
 export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose, selectedAnime }) => {
-  const [copied, setCopied] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
 
   if (!isOpen) return null;
 
-  // Escape string for SQL
-  const esc = (str: string | undefined | null) => {
-    if (!str) return 'NULL';
-    // Basic SQL escaping: replace single quotes with double single quotes
-    return `'${str.replace(/'/g, "''").replace(/\\/g, "\\\\")}'`;
+  const sqlCode = generateArchiveSql(selectedAnime);
+
+  const fallbackCopy = () => {
+    const textArea = document.createElement('textarea');
+    textArea.value = sqlCode;
+    textArea.setAttribute('readonly', '');
+    textArea.style.position = 'fixed';
+    textArea.style.opacity = '0';
+    document.body.appendChild(textArea);
+    textArea.select();
+    const succeeded = document.execCommand('copy');
+    textArea.remove();
+    if (!succeeded) throw new Error('Copy command was rejected');
   };
 
-  const tableName = "anime_archive";
-
-  const generateSql = () => {
-    const createTable = `
--- 1. Create Table Structure for MySQL 8+
-CREATE TABLE IF NOT EXISTS \`${tableName}\` (
-  \`id\` INT AUTO_INCREMENT PRIMARY KEY,
-  \`anilist_id\` INT NOT NULL,
-  \`title_native\` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  \`title_romaji\` VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
-  \`season_year\` INT,
-  \`season\` VARCHAR(20),
-  \`format\` VARCHAR(20),
-  \`average_score\` INT,
-  \`cover_image\` VARCHAR(255),
-  \`genres\` JSON,
-  \`description\` TEXT,
-  \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY \`unique_anime\` (\`anilist_id\`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-`;
-
-    if (selectedAnime.length === 0) return createTable;
-
-    const values = selectedAnime.map(a => {
-      const native = esc(a.title.native);
-      const romaji = esc(a.title.romaji);
-      const score = a.averageScore || 'NULL';
-      const season = esc(a.season);
-      const format = esc(a.format);
-      const cover = esc(a.coverImage.extraLarge || a.coverImage.large);
-      const desc = esc(a.description || '');
-      // Convert genres array to valid JSON string for SQL
-      const genres = esc(JSON.stringify(a.genres || []));
-
-      return `(${a.id}, ${native}, ${romaji}, ${a.seasonYear}, ${season}, ${format}, ${score}, ${cover}, ${genres}, ${desc})`;
-    }).join(',\n  ');
-
-    const insertData = `
--- 2. Insert Selected Data
-INSERT IGNORE INTO \`${tableName}\` 
-  (\`anilist_id\`, \`title_native\`, \`title_romaji\`, \`season_year\`, \`season\`, \`format\`, \`average_score\`, \`cover_image\`, \`genres\`, \`description\`) 
-VALUES 
-  ${values};
-`;
-
-    return (createTable + insertData).trim();
-  };
-
-  const sqlCode = generateSql();
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(sqlCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopy = async () => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(sqlCode);
+      } else {
+        fallbackCopy();
+      }
+      setCopyState('copied');
+    } catch {
+      try {
+        fallbackCopy();
+        setCopyState('copied');
+      } catch {
+        setCopyState('error');
+      }
+    }
+    window.setTimeout(() => setCopyState('idle'), 2400);
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
-      <div className="bg-[#121212] w-full max-w-4xl rounded-2xl border border-white/10 shadow-[0_0_50px_rgba(0,0,0,0.5)] flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl animate-fade-in sm:items-center">
+      <div role="dialog" aria-modal="true" aria-labelledby="sql-export-title" className="my-2 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/10 bg-[#121212] shadow-[0_0_50px_rgba(0,0,0,0.5)] sm:my-0">
         
         {/* Header */}
-        <div className="p-6 border-b border-white/5 flex justify-between items-center bg-gradient-to-r from-blue-600/10 to-transparent">
+        <div className="flex shrink-0 items-center justify-between border-b border-white/5 bg-gradient-to-r from-blue-600/10 to-transparent p-5 sm:p-6">
           <div>
-            <h2 className="text-xl font-bold text-blue-400 flex items-center gap-3 font-jp">
-              <span className="text-2xl">💾</span> 
+            <h2 id="sql-export-title" className="font-jp text-xl font-bold text-blue-400">
               本地数据库导出 (SQL)
             </h2>
             <p className="text-xs text-gray-500 mt-1.5 font-mono">
               将当前选中的 {selectedAnime.length} 部番剧导出为 MySQL 兼容格式。包含封面、简介与评分。
             </p>
           </div>
-          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full">
+          <button type="button" aria-label="关闭年鉴数据导出" onClick={onClose} className="rounded-full p-2 text-gray-500 transition-colors hover:bg-white/5 hover:text-white">
             <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -99,28 +69,31 @@ VALUES
         </div>
 
         {/* Code Block */}
-        <div className="relative flex-grow overflow-hidden bg-[#080808]">
-          <pre className="h-full overflow-auto custom-scrollbar p-6 text-xs sm:text-sm font-mono text-emerald-400/90 leading-relaxed whitespace-pre-wrap">
+        <div className="relative h-[55dvh] min-h-[240px] max-h-[640px] flex-1 overflow-hidden bg-[#080808]">
+          <pre tabIndex={0} aria-label="SQL 导出内容" className="custom-scrollbar absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-5 pb-20 font-mono text-xs leading-relaxed text-emerald-400/90 sm:p-6 sm:pb-20 sm:text-sm">
             {sqlCode}
           </pre>
           
           <div className="absolute top-4 right-4 flex gap-2">
-             <button 
-                onClick={handleCopy}
+             <button
+                type="button"
+                onClick={() => void handleCopy()}
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all border
-                  ${copied 
+                  ${copyState === 'copied'
                     ? 'bg-emerald-500 border-emerald-400 text-white' 
-                    : 'bg-white/5 hover:bg-white/10 text-gray-300 border-white/10 hover:border-white/20'}
+                    : copyState === 'error'
+                      ? 'bg-rose-500 border-rose-400 text-white'
+                      : 'bg-[#171717] hover:bg-[#222] text-gray-200 border-white/15 hover:border-white/30'}
                 `}
              >
-               {copied ? '✅ 已复制到剪贴板' : '📄 复制代码'}
+               {copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败，请手动选择' : '复制 SQL'}
              </button>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="p-4 bg-[#0a0a0c] border-t border-white/5 flex justify-between items-center text-xs text-gray-500">
+        <div className="flex shrink-0 items-center justify-between border-t border-white/5 bg-[#0a0a0c] p-4 text-xs text-gray-500">
            <span>适用于 MySQL 8.0+ 或 MariaDB</span>
            <span className="font-mono opacity-50">{sqlCode.length.toLocaleString()} chars</span>
         </div>

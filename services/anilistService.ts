@@ -103,6 +103,40 @@ query ($search: String!, $year: Int, $page: Int, $perPage: Int) {
 }
 `;
 
+const ARCHIVE_RECOMMENDATION_QUERY = `
+query ($ids: [Int]) {
+  Page(page: 1, perPage: 50) {
+    media(id_in: $ids, type: ANIME) {
+      id
+      title { romaji english native }
+      genres
+      recommendations(page: 1, perPage: 8) {
+        nodes {
+          rating
+          mediaRecommendation {
+            id
+            title { romaji english native }
+            coverImage { extraLarge large color }
+            bannerImage
+            description(asHtml: false)
+            format
+            season
+            seasonYear
+            genres
+            averageScore
+            popularity
+            status
+            episodes
+            duration
+            studios(isMain: true) { nodes { name } }
+          }
+        }
+      }
+    }
+  }
+}
+`;
+
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promise<any> {
@@ -219,6 +253,52 @@ export const searchAnime = async (search: string, year?: number, perPage: number
   const entries = (data?.Page?.media || []).map(normalizeAnime);
   animeCache[cacheKey] = entries;
   return entries;
+};
+
+export interface ArchiveRecommendation {
+  anime: Anime;
+  reason: string;
+}
+
+const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '这部作品';
+
+export const fetchArchiveRecommendations = async (archive: Anime[], limit: number = 12): Promise<ArchiveRecommendation[]> => {
+  const ids = archive.map((item) => Number(item.id)).filter(Number.isFinite).slice(0, 20);
+  if (!ids.length) return [];
+
+  const data = await fetchWithRetry({ ids }, 0, ARCHIVE_RECOMMENDATION_QUERY);
+  const selectedIds = new Set(archive.map((item) => String(item.id)));
+  const archiveGenres = new Set(archive.flatMap((item) => item.genres || []));
+  const candidates = new Map<string, { anime: Anime; score: number; sharedGenres: string[]; sourceTitles: string[] }>();
+
+  (data?.Page?.media || []).forEach((source: any) => {
+    const sourceTitle = source?.title?.native || source?.title?.romaji || '年鉴作品';
+    (source?.recommendations?.nodes || []).forEach((node: any) => {
+      if (!node?.mediaRecommendation) return;
+      const candidate = normalizeAnime(node.mediaRecommendation);
+      if (selectedIds.has(candidate.id)) return;
+      const sharedGenres = (candidate.genres || []).filter((genre) => archiveGenres.has(genre));
+      const score = Number(node.rating || 0) + (sharedGenres.length * 12) + ((candidate.averageScore || 0) * 0.18) + Math.min(10, Math.log1p(candidate.popularity || 0));
+      const current = candidates.get(candidate.id);
+      if (current) {
+        current.score += score;
+        current.sharedGenres = Array.from(new Set([...current.sharedGenres, ...sharedGenres]));
+        if (!current.sourceTitles.includes(sourceTitle)) current.sourceTitles.push(sourceTitle);
+      } else {
+        candidates.set(candidate.id, { anime: candidate, score, sharedGenres, sourceTitles: [sourceTitle] });
+      }
+    });
+  });
+
+  return Array.from(candidates.values())
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(({ anime, sharedGenres, sourceTitles }) => ({
+      anime,
+      reason: sharedGenres.length
+        ? `延续你年鉴里的 ${sharedGenres.slice(0, 2).join(' / ')} 取向，也与《${sourceTitles[0]}》的关联度很高。`
+        : `来自《${sourceTitles[0]}》的 AniList 关联推荐，并按口碑与人气重新排序。`
+    }));
 };
 
 // Allow clearing cache for config changes

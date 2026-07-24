@@ -74,7 +74,7 @@ export const GuidePage: React.FC<GuidePageProps> = ({
     const haystack = [item.title.native, item.title.romaji, item.title.english, ...item.genres].filter(Boolean).join(' ').toLocaleLowerCase();
     return (genre === 'ALL' || item.genres.includes(genre)) && haystack.includes(search.trim().toLocaleLowerCase());
   }), sort), [anime, genre, search, sort]);
-  const focusAnime = useMemo(() => sortAnime(anime, 'score').slice(0, 3), [anime]);
+  const focusAnime = useMemo(() => sortAnime(anime, 'score').slice(0, 6), [anime]);
   const seasonName = SEASON_CN[season].split(' ')[0];
 
   return (
@@ -83,7 +83,7 @@ export const GuidePage: React.FC<GuidePageProps> = ({
         <SeasonalHero year={year} season={season} total={anime.length} selectedCount={seasonSelections.length} onSeasonChange={setSeason} />
       </div>
 
-      <section className="ah-entry-delay mt-8 grid gap-5 lg:grid-cols-[minmax(0,1.5fr)_minmax(310px,0.8fr)]">
+      <section className="ah-entry-delay mt-8 grid items-start gap-5 lg:grid-cols-[minmax(0,1.55fr)_minmax(320px,0.8fr)]">
         <FeaturedSection anime={focusAnime} selectedIds={selectedIds} onToggle={(item) => onToggle(String(item.id), item)} />
         <WatchlistSummary selectedAnime={selectedAnime} profile={profile} onOpenArchive={onOpenArchive} onAnalyze={onAnalyze} />
       </section>

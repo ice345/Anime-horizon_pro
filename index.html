@@ -11,55 +11,7 @@
     <meta property="og:title" content="Anime Horizon" />
     <meta property="og:description" content="新番导视、补番记录、偏好测评与小游戏。" />
     <meta property="og:type" content="website" />
-    <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['"Outfit"', '"Noto Sans SC"', 'sans-serif'],
-              jp: ['"Zen Maru Gothic"', 'sans-serif'],
-            },
-            colors: {
-              anime: {
-                dark: 'var(--ah-paper)',
-                card: 'var(--ah-surface)',
-                primary: 'var(--ah-primary)',
-                accent: 'var(--ah-pink)',
-                highlight: 'var(--ah-primary)',
-              },
-              yearbook: {
-                paper: 'var(--ah-paper)',
-                surface: 'var(--ah-surface)',
-                blue: 'var(--ah-surface-blue)',
-                sky: 'var(--ah-primary)',
-                ink: 'var(--ah-ink)',
-                muted: 'var(--ah-muted)',
-                pink: 'var(--ah-pink)',
-                line: 'var(--ah-border)'
-              }
-            },
-            animation: {
-              'float': 'float 6s ease-in-out infinite',
-              'float-delayed': 'float 6s ease-in-out 3s infinite',
-              'pulse-slow': 'pulse 8s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-              'fade-in': 'fadeIn 0.5s ease-out forwards',
-            },
-            keyframes: {
-              float: {
-                '0%, 100%': { transform: 'translateY(0)' },
-                '50%': { transform: 'translateY(-15px)' },
-              },
-              fadeIn: {
-                '0%': { opacity: '0', transform: 'translateY(10px)' },
-                '100%': { opacity: '1', transform: 'translateY(0)' },
-              }
-            }
-          }
-        }
-      }
-    </script>
     <style>
       :root {
         --ah-paper: #fbfaf7;
@@ -170,16 +122,6 @@
         }
       }
     </style>
-  <script type="importmap">
-{
-  "imports": {
-    "react": "https://aistudiocdn.com/react@^19.2.1",
-    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
-    "react/": "https://aistudiocdn.com/react@^19.2.1/",
-    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0"
-  }
-}
-</script>
 </head>
   <body>
     <div id="root"></div>
