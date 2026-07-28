@@ -1,4 +1,4 @@
-import { Anime, Season } from '../types';
+import { Anime, Season, UserAnimeReaction } from '../types';
 
 const API_URL = "https://graphql.anilist.co";
 
@@ -262,30 +262,64 @@ export interface ArchiveRecommendation {
 
 const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '这部作品';
 
+const sourceAffinity: Record<UserAnimeReaction, number> = {
+  LOVE: 1.25,
+  LIKE: 1.08,
+  NEUTRAL: 0.76,
+  DISLIKE: 0.30,
+  HATE: 0
+};
+
+const normalizeReaction = (reaction?: UserAnimeReaction): UserAnimeReaction => (
+  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL'
+);
+
 export const fetchArchiveRecommendations = async (archive: Anime[], limit: number = 12): Promise<ArchiveRecommendation[]> => {
   const ids = archive.map((item) => Number(item.id)).filter(Number.isFinite).slice(0, 20);
   if (!ids.length) return [];
 
   const data = await fetchWithRetry({ ids }, 0, ARCHIVE_RECOMMENDATION_QUERY);
   const selectedIds = new Set(archive.map((item) => String(item.id)));
+  const archiveById = new Map(archive.map((item) => [String(item.id), item]));
+  const preferredGenreWeights = new Map<string, number>();
+  const avoidedGenreWeights = new Map<string, number>();
+  archive.forEach((item) => {
+    const reaction = normalizeReaction(item.userReaction);
+    const target = reaction === 'LOVE' || reaction === 'LIKE' ? preferredGenreWeights : reaction === 'DISLIKE' || reaction === 'HATE' ? avoidedGenreWeights : null;
+    if (!target) return;
+    const weight = reaction === 'LOVE' || reaction === 'HATE' ? 1.35 : 1;
+    (item.genres || []).forEach((genre) => target.set(genre, (target.get(genre) || 0) + weight));
+  });
   const archiveGenres = new Set(archive.flatMap((item) => item.genres || []));
-  const candidates = new Map<string, { anime: Anime; score: number; sharedGenres: string[]; sourceTitles: string[] }>();
+  const candidates = new Map<string, { anime: Anime; score: number; sharedGenres: string[]; sourceTitles: string[]; preferredSources: string[] }>();
 
   (data?.Page?.media || []).forEach((source: any) => {
     const sourceTitle = source?.title?.native || source?.title?.romaji || '年鉴作品';
+    const sourceArchiveItem = archiveById.get(String(source.id));
+    const sourceReaction = normalizeReaction(sourceArchiveItem?.userReaction);
+    const affinity = sourceAffinity[sourceReaction];
+    if (affinity === 0) return;
     (source?.recommendations?.nodes || []).forEach((node: any) => {
       if (!node?.mediaRecommendation) return;
       const candidate = normalizeAnime(node.mediaRecommendation);
       if (selectedIds.has(candidate.id)) return;
       const sharedGenres = (candidate.genres || []).filter((genre) => archiveGenres.has(genre));
-      const score = Number(node.rating || 0) + (sharedGenres.length * 12) + ((candidate.averageScore || 0) * 0.18) + Math.min(10, Math.log1p(candidate.popularity || 0));
+      const preferredMatch = (candidate.genres || []).reduce((sum, genre) => sum + (preferredGenreWeights.get(genre) || 0), 0);
+      const avoidedMatch = (candidate.genres || []).reduce((sum, genre) => sum + (avoidedGenreWeights.get(genre) || 0), 0);
+      const score = (Number(node.rating || 0) * affinity)
+        + (sharedGenres.length * 12)
+        + (preferredMatch * 10)
+        - (avoidedMatch * 8)
+        + ((candidate.averageScore || 0) * 0.18)
+        + Math.min(10, Math.log1p(candidate.popularity || 0));
       const current = candidates.get(candidate.id);
       if (current) {
         current.score += score;
         current.sharedGenres = Array.from(new Set([...current.sharedGenres, ...sharedGenres]));
         if (!current.sourceTitles.includes(sourceTitle)) current.sourceTitles.push(sourceTitle);
+        if ((sourceReaction === 'LOVE' || sourceReaction === 'LIKE') && !current.preferredSources.includes(sourceTitle)) current.preferredSources.push(sourceTitle);
       } else {
-        candidates.set(candidate.id, { anime: candidate, score, sharedGenres, sourceTitles: [sourceTitle] });
+        candidates.set(candidate.id, { anime: candidate, score, sharedGenres, sourceTitles: [sourceTitle], preferredSources: sourceReaction === 'LOVE' || sourceReaction === 'LIKE' ? [sourceTitle] : [] });
       }
     });
   });
@@ -293,10 +327,10 @@ export const fetchArchiveRecommendations = async (archive: Anime[], limit: numbe
   return Array.from(candidates.values())
     .sort((left, right) => right.score - left.score)
     .slice(0, limit)
-    .map(({ anime, sharedGenres, sourceTitles }) => ({
+    .map(({ anime, sharedGenres, sourceTitles, preferredSources }) => ({
       anime,
       reason: sharedGenres.length
-        ? `延续你年鉴里的 ${sharedGenres.slice(0, 2).join(' / ')} 取向，也与《${sourceTitles[0]}》的关联度很高。`
+        ? `${preferredSources.length ? `延续你喜欢的《${preferredSources[0]}》` : `延续《${sourceTitles[0]}》`}里的 ${sharedGenres.slice(0, 2).join(' / ')} 取向，并回避你标记不喜欢的方向。`
         : `来自《${sourceTitles[0]}》的 AniList 关联推荐，并按口碑与人气重新排序。`
     }));
 };

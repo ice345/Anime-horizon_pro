@@ -20,6 +20,7 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
     textArea.value = sqlCode;
     textArea.setAttribute('readonly', '');
     textArea.style.position = 'fixed';
+    textArea.style.left = '-9999px';
     textArea.style.opacity = '0';
     document.body.appendChild(textArea);
     textArea.select();
@@ -29,11 +30,20 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
   };
 
   const handleCopy = async () => {
+    let copied = false;
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(sqlCode);
-      } else {
+        copied = true;
+      }
+
+      // Some clipboard-history tools only observe the legacy copy event.
+      // Repeating the same write is harmless and improves desktop compatibility.
+      try {
         fallbackCopy();
+        copied = true;
+      } catch {
+        if (!copied) throw new Error('Copy command was rejected');
       }
       setCopyState('copied');
     } catch {
@@ -45,6 +55,18 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
       }
     }
     window.setTimeout(() => setCopyState('idle'), 2400);
+  };
+
+  const handleDownload = () => {
+    const blob = new Blob([sqlCode], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `anime_horizon_archive_${new Date().toISOString().slice(0, 10)}.sql`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   return (
@@ -74,7 +96,14 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
             {sqlCode}
           </pre>
           
-          <div className="absolute top-4 right-4 flex gap-2">
+          <div className="absolute top-4 right-4 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-2">
+             <button
+                type="button"
+                onClick={handleDownload}
+                className="rounded-lg border border-white/15 bg-[#171717] px-3 py-2 text-sm font-bold text-gray-200 shadow-lg transition hover:border-white/30 hover:bg-[#222]"
+             >
+               下载 .sql
+             </button>
              <button
                 type="button"
                 onClick={() => void handleCopy()}

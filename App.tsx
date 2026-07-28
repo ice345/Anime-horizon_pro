@@ -7,7 +7,7 @@ import { YearNavigation } from './components/home/YearNavigation';
 import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
 import { analyzeAnimeTaste, isUsingSessionAIConfig } from './services/geminiService';
 import { buildTasteProfile } from './services/tasteProfile';
-import { Anime, OtakuRank, Season, SEASON_ORDER, UserAnimeStatus } from './types';
+import { Anime, OtakuRank, Season, SEASON_ORDER, UserAnimeReaction, UserAnimeStatus } from './types';
 
 const AnalysisModal = lazy(() => import('./components/AnalysisModal').then(({ AnalysisModal: Component }) => ({ default: Component })));
 const SqlExportModal = lazy(() => import('./components/SqlExportModal').then(({ SqlExportModal: Component }) => ({ default: Component })));
@@ -42,6 +42,17 @@ const buildYears = (start: number, end: number) => {
 const normalizeUserStatus = (status?: UserAnimeStatus): UserAnimeStatus => (
   status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN'
 );
+
+const normalizeUserReaction = (reaction?: UserAnimeReaction): UserAnimeReaction => (
+  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL'
+);
+
+const normalizeArchiveAnime = (anime: Anime): Anime => ({
+  ...anime,
+  userStatus: normalizeUserStatus(anime.userStatus),
+  userReaction: normalizeUserReaction(anime.userReaction),
+  userNote: typeof anime.userNote === 'string' ? anime.userNote.slice(0, 280) : undefined
+});
 
 export default function App() {
   const loadSavedYearRange = () => {
@@ -92,7 +103,7 @@ export default function App() {
       if (saved) setSelectedIds(new Set(JSON.parse(saved)));
       if (savedDetails) {
         const details = JSON.parse(savedDetails) as Anime[];
-        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), { ...anime, userStatus: normalizeUserStatus(anime.userStatus) }])));
+        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), normalizeArchiveAnime(anime)])));
       }
     } catch (error) {
       console.warn('Failed to restore local archive', error);
@@ -109,8 +120,8 @@ export default function App() {
 
   useEffect(() => {
     localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
-    if (activeYear < yearRange.start || activeYear > yearRange.end) setActiveYear(yearRange.end);
-  }, [activeYear, yearRange]);
+    if (route === 'guide' && (activeYear < yearRange.start || activeYear > yearRange.end)) setActiveYear(yearRange.end);
+  }, [activeYear, route, yearRange]);
 
   const navigate = (nextRoute: 'guide' | 'record') => {
     if (nextRoute === 'record' && selectedAnimeDetails.size) {
@@ -214,7 +225,7 @@ export default function App() {
       try {
         const json = JSON.parse(event.target?.result as string);
         if (json.userSelection) setSelectedIds(new Set(json.userSelection));
-        if (json.userDetails) setSelectedAnimeDetails(new Map(json.userDetails.map((anime: Anime) => [String(anime.id), anime])));
+        if (json.userDetails) setSelectedAnimeDetails(new Map(json.userDetails.map((anime: Anime) => [String(anime.id), normalizeArchiveAnime(anime)])));
         if (json.config?.itemsPerSeason) setItemsPerSeason(json.config.itemsPerSeason);
         if (json.config?.startYear && json.config?.endYear) handleYearRangeChange(json.config.startYear, json.config.endYear);
         if (json.currentViewData) setAnimeList(json.currentViewData);
@@ -235,7 +246,7 @@ export default function App() {
     });
     setSelectedAnimeDetails((previous) => {
       const next = new Map(previous);
-      anime.forEach((item) => next.set(String(item.id), { ...item, userStatus: normalizeUserStatus(item.userStatus) }));
+      anime.forEach((item) => next.set(String(item.id), normalizeArchiveAnime(item)));
       return next;
     });
     setQuickTasteProfile(null);
@@ -250,7 +261,7 @@ export default function App() {
       nextDetails.delete(id);
     } else {
       nextIds.add(id);
-      nextDetails.set(id, { ...anime, userStatus: 'PLAN' });
+      nextDetails.set(id, { ...anime, userStatus: 'PLAN', userReaction: 'NEUTRAL', userNote: undefined });
     }
     setSelectedIds(nextIds);
     setSelectedAnimeDetails(nextDetails);
@@ -262,6 +273,20 @@ export default function App() {
       if (!target) return previous;
       const next = new Map(previous);
       next.set(id, { ...target, userStatus });
+      return next;
+    });
+  };
+
+  const handleUpdateAnimeReview = (id: string, review: { reaction: UserAnimeReaction; note: string }) => {
+    setSelectedAnimeDetails((previous) => {
+      const target = previous.get(id);
+      if (!target) return previous;
+      const next = new Map(previous);
+      next.set(id, {
+        ...target,
+        userReaction: normalizeUserReaction(review.reaction),
+        userNote: review.note.trim().slice(0, 280) || undefined
+      });
       return next;
     });
   };
@@ -349,6 +374,7 @@ export default function App() {
           year={activeYear}
           onToggle={(anime) => toggleAnime(String(anime.id), anime)}
           onSetStatus={(anime, status) => handleUpdateAnimeStatus(String(anime.id), status)}
+          onSetReview={(anime, review) => handleUpdateAnimeReview(String(anime.id), review)}
           onBrowse={() => navigate('guide')}
           onAnalyze={() => void handleAnalyze()}
           onCreatePortrait={() => setIsYearbookPortraitOpen(true)}

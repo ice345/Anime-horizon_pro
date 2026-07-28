@@ -1,9 +1,13 @@
-import { Anime, Season, UserAnimeStatus } from '../types';
+import { Anime, Season, UserAnimeReaction, UserAnimeStatus } from '../types';
 
 const TABLE_NAME = 'anime_archive';
 
 const normalizeStatus = (status: unknown): UserAnimeStatus => (
   status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN'
+);
+
+const normalizeReaction = (reaction: unknown): UserAnimeReaction => (
+  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL'
 );
 
 const escapeSql = (value: string | undefined | null) => {
@@ -27,6 +31,8 @@ CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
   \`genres\` JSON,
   \`description\` TEXT,
   \`user_status\` VARCHAR(20) NOT NULL DEFAULT 'PLAN',
+  \`user_reaction\` VARCHAR(20) NOT NULL DEFAULT 'NEUTRAL',
+  \`user_note\` TEXT,
   \`created_at\` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY \`unique_anime\` (\`anilist_id\`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -43,15 +49,17 @@ CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
     const cover = escapeSql(anime.coverImage.extraLarge || anime.coverImage.large);
     const description = escapeSql(anime.description || '');
     const userStatus = escapeSql(anime.userStatus || 'PLAN');
+    const userReaction = escapeSql(anime.userReaction || 'NEUTRAL');
+    const userNote = escapeSql(anime.userNote?.trim() || '');
     const genres = escapeSql(JSON.stringify(anime.genres || []));
 
-    return `(${anime.id}, ${native}, ${romaji}, ${anime.seasonYear}, ${season}, ${format}, ${score}, ${cover}, ${genres}, ${description}, ${userStatus})`;
+    return `(${anime.id}, ${native}, ${romaji}, ${anime.seasonYear}, ${season}, ${format}, ${score}, ${cover}, ${genres}, ${description}, ${userStatus}, ${userReaction}, ${userNote})`;
   }).join(',\n  ');
 
   const insertData = `
 -- 2. Insert Selected Data
 INSERT IGNORE INTO \`${TABLE_NAME}\`
-  (\`anilist_id\`, \`title_native\`, \`title_romaji\`, \`season_year\`, \`season\`, \`format\`, \`average_score\`, \`cover_image\`, \`genres\`, \`description\`, \`user_status\`)
+  (\`anilist_id\`, \`title_native\`, \`title_romaji\`, \`season_year\`, \`season\`, \`format\`, \`average_score\`, \`cover_image\`, \`genres\`, \`description\`, \`user_status\`, \`user_reaction\`, \`user_note\`)
 VALUES
   ${values};
 `;
@@ -144,7 +152,7 @@ export const parseArchiveSql = (source: string): Anime[] => {
 
   const seenIds = new Set<string>();
   const anime = parseSqlValues(source).flatMap((row) => {
-    const [id, native, romaji, seasonYear, season, format, averageScore, coverImage, genres, description, userStatus] = row;
+    const [id, native, romaji, seasonYear, season, format, averageScore, coverImage, genres, description, userStatus, userReaction, userNote] = row;
     const numericYear = typeof seasonYear === 'number' ? seasonYear : Number(seasonYear);
     const titleNative = typeof native === 'string' ? native : '';
     const titleRomaji = typeof romaji === 'string' ? romaji : '';
@@ -164,7 +172,9 @@ export const parseArchiveSql = (source: string): Anime[] => {
       averageScore: typeof averageScore === 'number' ? averageScore : undefined,
       format: typeof format === 'string' ? format : undefined,
       description: typeof description === 'string' ? description : undefined,
-      userStatus: normalizeStatus(userStatus)
+      userStatus: normalizeStatus(userStatus),
+      userReaction: normalizeReaction(userReaction),
+      userNote: typeof userNote === 'string' ? userNote.slice(0, 280) : undefined
     } satisfies Anime];
   });
 

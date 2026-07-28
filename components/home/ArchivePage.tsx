@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { TasteProfile } from '../../services/tasteProfile';
-import { Anime, UserAnimeStatus } from '../../types';
+import { Anime, UserAnimeReaction, UserAnimeStatus } from '../../types';
 import { AnimeCard } from '../AnimeCard';
 import { EmptyState } from './EmptyState';
 import { TasteMethodDetails } from './TasteMethodDetails';
@@ -11,6 +11,7 @@ interface ArchivePageProps {
   year: number;
   onToggle: (anime: Anime) => void;
   onSetStatus: (anime: Anime, status: UserAnimeStatus) => void;
+  onSetReview: (anime: Anime, review: { reaction: UserAnimeReaction; note: string }) => void;
   onBrowse: () => void;
   onAnalyze: () => void;
   onCreatePortrait: () => void;
@@ -18,7 +19,7 @@ interface ArchivePageProps {
 
 const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
 
-export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, onToggle, onSetStatus, onBrowse, onAnalyze, onCreatePortrait }) => {
+export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, onToggle, onSetStatus, onSetReview, onBrowse, onAnalyze, onCreatePortrait }) => {
   const entries = useMemo(() => anime
     .filter((item) => item.seasonYear === year)
     .sort((left, right) => getTitle(left).localeCompare(getTitle(right), 'ja')), [anime, year]);
@@ -55,7 +56,7 @@ export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, 
             <span className="text-sm text-yearbook-muted">{entries.length} 部收录</span>
           </div>
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {entries.map((item) => <AnimeCard key={item.id} anime={item} selected onToggle={() => onToggle(item)} onSetStatus={(status) => onSetStatus(item, status)} />)}
+            {entries.map((item) => <AnimeCard key={item.id} anime={item} selected onToggle={() => onToggle(item)} onSetStatus={(status) => onSetStatus(item, status)} onSetReview={(review) => onSetReview(item, review)} />)}
           </div>
         </section>
       )}

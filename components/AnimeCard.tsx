@@ -1,11 +1,12 @@
-import React from 'react';
-import { Anime, SEASON_CN, UserAnimeStatus } from '../types';
+import React, { useEffect, useState } from 'react';
+import { Anime, SEASON_CN, UserAnimeReaction, UserAnimeStatus } from '../types';
 
 interface AnimeCardProps {
   anime: Anime;
   selected: boolean;
   onToggle: () => void;
   onSetStatus?: (status: UserAnimeStatus) => void;
+  onSetReview?: (review: { reaction: UserAnimeReaction; note: string }) => void;
   view?: 'grid' | 'list';
 }
 
@@ -28,13 +29,43 @@ const userStatusOptions: Array<{ value: UserAnimeStatus; label: string }> = [
   { value: 'COMPLETED', label: '已看完' }
 ];
 
-export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle, onSetStatus, view = 'grid' }) => {
+const reactionOptions: Array<{ value: UserAnimeReaction; label: string }> = [
+  { value: 'LOVE', label: '非常喜欢' },
+  { value: 'LIKE', label: '喜欢' },
+  { value: 'NEUTRAL', label: '一般' },
+  { value: 'DISLIKE', label: '不太喜欢' },
+  { value: 'HATE', label: '不喜欢' }
+];
+
+const reactionText: Record<UserAnimeReaction, string> = {
+  LOVE: '非常喜欢',
+  LIKE: '喜欢',
+  NEUTRAL: '未标记感受',
+  DISLIKE: '不太喜欢',
+  HATE: '不喜欢'
+};
+
+export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle, onSetStatus, onSetReview, view = 'grid' }) => {
   const displayTitle = anime.title.native || anime.title.romaji || anime.title.english;
   const subTitle = anime.title.romaji !== displayTitle ? anime.title.romaji : anime.title.english;
   const coverUrl = anime.coverImage.extraLarge || anime.coverImage.large;
   const status = statusText[anime.status || ''] || anime.format || '动画';
   const isList = view === 'list';
   const userStatus = anime.userStatus || 'PLAN';
+  const userReaction = anime.userReaction || 'NEUTRAL';
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
+  const [reactionDraft, setReactionDraft] = useState<UserAnimeReaction>(userReaction);
+  const [noteDraft, setNoteDraft] = useState(anime.userNote || '');
+
+  useEffect(() => {
+    setReactionDraft(userReaction);
+    setNoteDraft(anime.userNote || '');
+  }, [anime.id, anime.userNote, userReaction]);
+
+  const saveReview = () => {
+    onSetReview?.({ reaction: reactionDraft, note: noteDraft.trim().slice(0, 280) });
+    setIsReviewOpen(false);
+  };
 
   return (
     <article className={`overflow-hidden border border-yearbook-line bg-yearbook-surface shadow-[0_8px_24px_rgba(59,95,132,0.055)] transition duration-200 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_14px_32px_rgba(59,95,132,0.12)] ${isList ? 'rounded-[var(--ah-radius-md)]' : 'rounded-[var(--ah-radius-md)]'}`}>
@@ -79,12 +110,43 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({ anime, selected, onToggle,
       </button>
 
       {selected && onSetStatus && (
-        <label className="flex items-center justify-between gap-3 border-t border-yearbook-line bg-yearbook-paper/60 px-3.5 py-2.5 text-xs text-yearbook-muted">
-          <span>我的状态</span>
-          <select value={userStatus} onChange={(event) => onSetStatus(event.target.value as UserAnimeStatus)} aria-label={`${displayTitle} 的观看状态`} className="border-0 bg-transparent py-1 text-sm font-medium text-yearbook-ink outline-none">
-            {userStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-          </select>
-        </label>
+        <div className="border-t border-yearbook-line bg-yearbook-paper/60">
+          <div className="flex items-center justify-between gap-3 px-3.5 py-2.5 text-xs text-yearbook-muted">
+            <label className="flex min-w-0 items-center gap-2">
+              <span className="shrink-0">我的状态</span>
+              <select value={userStatus} onChange={(event) => onSetStatus(event.target.value as UserAnimeStatus)} aria-label={`${displayTitle} 的观看状态`} className="border-0 bg-transparent py-1 text-sm font-medium text-yearbook-ink outline-none">
+                {userStatusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            {onSetReview && <button type="button" onClick={() => setIsReviewOpen((open) => !open)} aria-expanded={isReviewOpen} className="shrink-0 text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink">{isReviewOpen ? '收起' : anime.userNote || userReaction !== 'NEUTRAL' ? '编辑点评' : '写点评'}</button>}
+          </div>
+
+          {!isReviewOpen && (anime.userNote || userReaction !== 'NEUTRAL') && (
+            <div className="border-t border-yearbook-line/70 px-3.5 py-2.5 text-xs leading-5 text-yearbook-muted">
+              <p className="font-medium text-yearbook-ink">{reactionText[userReaction]}</p>
+              {anime.userNote && <p className="mt-1 line-clamp-3">{anime.userNote}</p>}
+            </div>
+          )}
+
+          {isReviewOpen && onSetReview && (
+            <div className="space-y-2.5 border-t border-yearbook-line px-3.5 py-3">
+              <label className="block text-xs text-yearbook-muted">
+                <span className="mb-1.5 block">看后感受</span>
+                <select value={reactionDraft} onChange={(event) => setReactionDraft(event.target.value as UserAnimeReaction)} aria-label={`${displayTitle} 的喜欢程度`} className="w-full border border-yearbook-line bg-white px-2.5 py-2 text-sm text-yearbook-ink outline-none transition focus:border-yearbook-sky">
+                  {reactionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs text-yearbook-muted">
+                <span className="mb-1.5 block">一句短评</span>
+                <textarea value={noteDraft} onChange={(event) => setNoteDraft(event.target.value)} maxLength={280} rows={3} aria-label={`${displayTitle} 的短评`} placeholder="留下你想记住的一句话" className="w-full resize-y border border-yearbook-line bg-white px-2.5 py-2 text-sm leading-5 text-yearbook-ink outline-none transition placeholder:text-yearbook-muted/70 focus:border-yearbook-sky" />
+              </label>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[11px] text-yearbook-muted">{noteDraft.length}/280</span>
+                <button type="button" onClick={saveReview} className="bg-yearbook-sky px-3 py-1.5 text-sm font-medium text-white transition hover:bg-sky-600">保存点评</button>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </article>
   );

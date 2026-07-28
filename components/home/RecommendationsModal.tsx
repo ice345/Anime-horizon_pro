@@ -17,7 +17,7 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({ isOp
   const [recommendations, setRecommendations] = useState<ArchiveRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const archiveKey = useMemo(() => archive.map((item) => item.id).sort().join(','), [archive]);
+  const archiveKey = useMemo(() => archive.map((item) => `${item.id}:${item.userReaction || 'NEUTRAL'}`).sort().join(','), [archive]);
   const fallbackKey = useMemo(() => fallbackAnime.map((item) => item.id).join(','), [fallbackAnime]);
 
   useEffect(() => {
@@ -65,7 +65,7 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({ isOp
             <p className="ah-section-label">For Your Archive</p>
             <h2 id="recommendation-title" className="mt-2 font-jp text-2xl font-medium text-yearbook-ink">下一部，应该看什么？</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-yearbook-muted">
-              {archive.length ? '根据你年鉴作品的关联推荐、题材交集、评分与人气重新排序。' : '先从本季高分作品中挑一部，收录后这里会逐步长成你的专属推荐。'}
+              {archive.length ? '根据年鉴关联、题材交集、评分与人气重新排序；你标记喜欢与不喜欢的作品也会影响结果。' : '先从本季高分作品中挑一部，收录后这里会逐步长成你的专属推荐。'}
             </p>
           </div>
           <button type="button" aria-label="关闭推荐面板" onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-full text-yearbook-muted transition hover:bg-white hover:text-yearbook-ink">×</button>

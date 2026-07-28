@@ -1,4 +1,4 @@
-import { Anime, OtakuRank, UserAnimeStatus } from '../types';
+import { Anime, OtakuRank, UserAnimeReaction, UserAnimeStatus } from '../types';
 
 export interface TasteProfile {
   rank: OtakuRank;
@@ -14,6 +14,7 @@ export interface TasteProfile {
     eraBreadth: number;
     diversity: number;
     engagement: number;
+    personalCuration: number;
     formatBreadth: number;
   };
 }
@@ -32,7 +33,16 @@ const engagementValue: Record<UserAnimeStatus, number> = {
   COMPLETED: 100
 };
 
+const reactionValue: Record<UserAnimeReaction, number> = {
+  LOVE: 100,
+  LIKE: 76,
+  NEUTRAL: 50,
+  DISLIKE: 24,
+  HATE: 0
+};
+
 const normalizeStatus = (status?: UserAnimeStatus): UserAnimeStatus => status && statusEvidence[status] ? status : 'PLAN';
+const normalizeReaction = (reaction?: UserAnimeReaction): UserAnimeReaction => reaction && reactionValue[reaction] !== undefined ? reaction : 'NEUTRAL';
 const itemWeight = (anime: Anime) => statusEvidence[normalizeStatus(anime.userStatus)];
 
 const weightedAverage = (anime: Anime[], scorer: (item: Anime) => number, fallback = 0) => {
@@ -79,6 +89,18 @@ const shannonDiversity = (anime: Anime[]) => {
 const formatBreadth = (anime: Anime[]) => {
   const formats = new Set(anime.map((item) => item.format).filter(Boolean));
   return clamp(((formats.size - 1) / 4) * 100);
+};
+
+// Strong likes and dislikes both signal deliberate viewing. A note adds a small
+// curation bonus, while the confidence shrinkage prevents a handful of entries
+// from changing the overall profile too much.
+const personalCuration = (anime: Anime[], confidence: number) => {
+  const raw = weightedAverage(anime, (item) => {
+    const intensity = Math.abs(reactionValue[normalizeReaction(item.userReaction)] - 50) * 2;
+    const noteBonus = item.userNote?.trim() ? 15 : 0;
+    return clamp((intensity * 0.85) + noteBonus);
+  });
+  return raw * (0.25 + ((confidence / 100) * 0.75));
 };
 
 const eraBreadth = (anime: Anime[], confidence: number) => {
@@ -130,14 +152,16 @@ const buildLabels = (metrics: TasteProfile['metrics'], confidence: number) => {
   const era = metrics.eraBreadth >= 60 ? '跨年代补番' : metrics.eraBreadth >= 34 ? '新旧并看' : '当代追番';
   const diversity = metrics.diversity >= 68 ? '题材广谱' : metrics.diversity >= 44 ? '多线口味' : '口味专注';
   const engagement = metrics.engagement >= 78 ? '观看落实派' : metrics.engagement >= 52 ? '追番进行时' : '愿望单收藏家';
+  const personal = metrics.personalCuration >= 62 ? '评鉴鲜明' : metrics.personalCuration >= 30 ? '有感而记' : '观后留白';
 
   return {
-    labels: [exploration, era, diversity, engagement],
+    labels: [exploration, era, diversity, engagement, personal],
     reasons: {
       [exploration]: `长尾探索指标 ${metrics.niche}：由作品人气的对数反向分位计算。`,
       [era]: `年代跨度指标 ${metrics.eraBreadth}：综合年份跨度、跨越年代数和十年前作品占比。`,
       [diversity]: `题材多样性 ${metrics.diversity}：使用归一化 Shannon 熵，并结合动画形式覆盖。`,
-      [engagement]: `观看投入 ${metrics.engagement}：想看、追更、已看完分别按 28、72、100 计分。`
+      [engagement]: `观看投入 ${metrics.engagement}：想看、追更、已看完分别按 28、72、100 计分。`,
+      [personal]: `个人评鉴 ${metrics.personalCuration}：由喜欢程度的鲜明度与短评记录计算；喜欢和不喜欢都能体现认真判断。`
     }
   };
 };
@@ -156,14 +180,16 @@ export const buildTasteProfile = (anime: Anime[]): TasteProfile => {
   const diversity = diversityRaw * (0.30 + (confidenceFactor * 0.70));
   const era = eraBreadth(anime, confidence);
   const engagement = weightedAverage(anime, (item) => engagementValue[normalizeStatus(item.userStatus)], 0);
+  const personal = personalCuration(anime, confidence);
 
   const score = Math.round(clamp(
-    (depth * 0.30)
-    + (niche * 0.16)
-    + (curation * 0.12)
-    + (era * 0.14)
-    + (diversity * 0.13)
-    + (engagement * 0.15)
+    (depth * 0.27)
+    + (niche * 0.14)
+    + (curation * 0.11)
+    + (era * 0.13)
+    + (diversity * 0.12)
+    + (engagement * 0.13)
+    + (personal * 0.10)
   ));
 
   const metrics = {
@@ -173,6 +199,7 @@ export const buildTasteProfile = (anime: Anime[]): TasteProfile => {
     eraBreadth: Math.round(era),
     diversity: Math.round(diversity),
     engagement: Math.round(engagement),
+    personalCuration: Math.round(personal),
     formatBreadth: Math.round(formats)
   };
   const rank = selectRank(evidenceCount, score, metrics, moeAffinity(anime));

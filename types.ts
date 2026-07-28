@@ -1,5 +1,6 @@
 export type Season = 'WINTER' | 'SPRING' | 'SUMMER' | 'FALL';
 export type UserAnimeStatus = 'PLAN' | 'WATCHING' | 'COMPLETED';
+export type UserAnimeReaction = 'LOVE' | 'LIKE' | 'NEUTRAL' | 'DISLIKE' | 'HATE';
 
 export interface AnimeTitle {
   romaji: string;
@@ -36,6 +37,9 @@ export interface Anime {
   };
   // Personal archive metadata. AniList data never determines this value.
   userStatus?: UserAnimeStatus;
+  // Kept locally with the user's archive; never supplied by AniList.
+  userReaction?: UserAnimeReaction;
+  userNote?: string;
 }
 
 export type OtakuRank = '现充' | '路人' | '动画爱好者' | '老二次元' | '萌豚' | '婆罗门' | '动漫之神';
