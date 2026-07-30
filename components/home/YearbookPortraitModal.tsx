@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
+import { buildPortraitImagePrompt, copyBridgePrompt, openChatGPT } from '../../services/chatgptBridge';
 import { buildTasteProfile } from '../../services/tasteProfile';
 import { Anime, UserAnimeStatus } from '../../types';
 
@@ -7,6 +8,7 @@ interface YearbookPortraitModalProps {
   onClose: () => void;
   year: number;
   anime: Anime[];
+  scope?: 'year' | 'archive';
 }
 
 const statusLabels: Record<UserAnimeStatus, string> = {
@@ -15,8 +17,9 @@ const statusLabels: Record<UserAnimeStatus, string> = {
   COMPLETED: '已看完'
 };
 
-export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ isOpen, onClose, year, anime }) => {
+export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ isOpen, onClose, year, anime, scope = 'year' }) => {
   const profile = useMemo(() => buildTasteProfile(anime), [anime]);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
   const statusCounts = useMemo(() => ({
     PLAN: anime.filter((item) => (item.userStatus || 'PLAN') === 'PLAN').length,
     WATCHING: anime.filter((item) => item.userStatus === 'WATCHING').length,
@@ -27,6 +30,18 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ is
     anime.flatMap((item) => item.genres || []).forEach((genre) => counts.set(genre, (counts.get(genre) || 0) + 1));
     return Array.from(counts.entries()).sort((left, right) => right[1] - left[1]).slice(0, 3).map(([genre]) => genre);
   }, [anime]);
+  const scopeTitle = scope === 'archive' ? '全站鉴赏画像' : `${year} 年度鉴赏画像`;
+  const imagePrompt = useMemo(() => buildPortraitImagePrompt(scopeTitle, anime, profile), [anime, profile, scopeTitle]);
+
+  const copyPrompt = async () => {
+    try {
+      await copyBridgePrompt(imagePrompt);
+      setCopyState('copied');
+    } catch {
+      setCopyState('error');
+    }
+    window.setTimeout(() => setCopyState('idle'), 2200);
+  };
 
   if (!isOpen) return null;
 
@@ -38,8 +53,8 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ is
           <div className="relative flex items-start justify-between gap-5">
             <div>
               <p className="ah-section-label">Annual Portrait</p>
-              <h2 id="portrait-title" className="mt-2 font-jp text-3xl font-medium text-yearbook-ink">{year} 年度鉴赏画像</h2>
-              <p className="mt-2 text-sm text-yearbook-muted">由这一年主动收录的 {anime.length} 部作品拼成。</p>
+              <h2 id="portrait-title" className="mt-2 font-jp text-3xl font-medium text-yearbook-ink">{scopeTitle}</h2>
+              <p className="mt-2 text-sm text-yearbook-muted">由{scope === 'archive' ? '全部' : '这一年'}主动收录的 {anime.length} 部作品拼成。</p>
             </div>
             <button type="button" aria-label="关闭年度鉴赏画像" onClick={onClose} className="grid h-10 w-10 place-items-center rounded-full bg-white/70 text-yearbook-muted transition hover:bg-white hover:text-yearbook-ink">×</button>
           </div>
@@ -52,8 +67,8 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ is
               {!anime.length && <div className="col-span-4 grid aspect-[3/2] place-items-center bg-yearbook-blue text-sm text-yearbook-muted">先收录一部作品</div>}
             </div>
             <div className="mt-6 border-l-2 border-yearbook-pink bg-rose-50/65 px-4 py-3">
-              <p className="text-sm font-medium text-yearbook-ink">这一年的你，是 {profile.rank}。</p>
-              <p className="mt-1 text-sm leading-6 text-yearbook-muted">{topGenres.length ? `作品在 ${topGenres.join(' / ')} 之间来回停留，留下了属于 ${year} 的观看轨迹。` : '从第一部作品开始，写下属于这一年的观看轨迹。'}</p>
+              <p className="text-sm font-medium text-yearbook-ink">{scope === 'archive' ? '完整年鉴中的你' : '这一年的你'}，是 {profile.rank}。</p>
+              <p className="mt-1 text-sm leading-6 text-yearbook-muted">{topGenres.length ? `作品在 ${topGenres.join(' / ')} 之间来回停留，留下了${scope === 'archive' ? '完整年鉴' : `${year} 年`}的观看轨迹。` : '从第一部作品开始，写下属于自己的观看轨迹。'}</p>
             </div>
           </div>
 
@@ -71,6 +86,14 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({ is
               {profile.labels.map((label) => <span key={label} title={profile.labelReasons[label]} className="border border-yearbook-line bg-white px-2 py-1 text-[11px] text-yearbook-muted">{label}</span>)}
             </div>
           </aside>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-yearbook-line bg-yearbook-paper/55 px-6 py-4 sm:px-8">
+          <span className="text-sm text-yearbook-muted">ChatGPT 绘图协作</span>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => void copyPrompt()} className="border border-yearbook-line bg-white px-3 py-2 text-sm font-medium text-yearbook-ink transition hover:border-sky-300 hover:bg-yearbook-blue">{copyState === 'copied' ? 'Prompt 已复制' : copyState === 'error' ? '复制失败' : '复制绘图 Prompt'}</button>
+            <button type="button" onClick={openChatGPT} className="bg-yearbook-sky px-3 py-2 text-sm font-medium text-white transition hover:bg-sky-600">打开 ChatGPT</button>
+          </div>
         </div>
       </section>
     </div>

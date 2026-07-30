@@ -5,7 +5,7 @@ import { DecorativeBackground } from './components/home/DecorativeBackground';
 import { SiteHeader } from './components/home/SiteHeader';
 import { YearNavigation } from './components/home/YearNavigation';
 import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
-import { analyzeAnimeTaste, isUsingSessionAIConfig } from './services/geminiService';
+import { analyzeAnimeTaste, buildTasteAnalysisPrompt, isUsingSessionAIConfig, normalizeTasteAnalysis, TasteAnalysisResult } from './services/geminiService';
 import { buildTasteProfile } from './services/tasteProfile';
 import { Anime, OtakuRank, Season, SEASON_ORDER, UserAnimeReaction, UserAnimeStatus } from './types';
 
@@ -91,8 +91,9 @@ export default function App() {
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [isRecommendationsOpen, setIsRecommendationsOpen] = useState(false);
   const [isYearbookPortraitOpen, setIsYearbookPortraitOpen] = useState(false);
+  const [portraitScope, setPortraitScope] = useState<'year' | 'archive'>('year');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisData, setAnalysisData] = useState<any>(null);
+  const [analysisData, setAnalysisData] = useState<TasteAnalysisResult | null>(null);
   const [quickTasteProfile, setQuickTasteProfile] = useState<{ inputs: string[]; rank: OtakuRank } | null>(null);
   const [itemsPerSeason, setItemsPerSeason] = useState(20);
 
@@ -294,7 +295,9 @@ export default function App() {
   const tasteProfile = useMemo(() => buildTasteProfile(Array.from(selectedAnimeDetails.values())), [selectedAnimeDetails]);
   const activeYearArchive = useMemo(() => Array.from<Anime>(selectedAnimeDetails.values()).filter((anime) => anime.seasonYear === activeYear), [activeYear, selectedAnimeDetails]);
   const activeYearProfile = useMemo(() => buildTasteProfile(activeYearArchive), [activeYearArchive]);
+  const fullArchive = useMemo(() => Array.from(selectedAnimeDetails.values()), [selectedAnimeDetails]);
   const rank = tasteProfile.rank;
+  const chatGptAnalysisPrompt = useMemo(() => buildTasteAnalysisPrompt(fullArchive.slice(0, 120), rank), [fullArchive, rank]);
   const displayedRank = quickTasteProfile?.rank || rank;
 
   const handleAnalyze = async (override?: { inputs: string[]; rank: OtakuRank }) => {
@@ -307,19 +310,16 @@ export default function App() {
     if (!analysisData || override) {
       setIsAnalyzing(true);
       try {
-        const archiveTitles = (Array.from(selectedAnimeDetails.values()) as Anime[])
-          .map((anime) => `${anime.title.native || anime.title.romaji} (${anime.seasonYear})`);
-        const titles = profile?.inputs?.length ? profile.inputs : archiveTitles;
-        const sourceTitles = titles.length ? titles : ['(用户数据缓存已清除，仅基于数量分析)'];
-        const result = await analyzeAnimeTaste(sourceTitles.sort(() => 0.5 - Math.random()).slice(0, 40), profile?.rank || rank);
+        const source = profile?.inputs?.length ? profile.inputs : fullArchive.slice(0, 120);
+        const result = await analyzeAnimeTaste(source.length ? source : ['(用户数据缓存已清除，仅基于数量分析)'], profile?.rank || rank);
         setAnalysisData(result);
       } catch (error) {
         console.error(error);
-        setAnalysisData({
+        setAnalysisData(normalizeTasteAnalysis({
           roast: isUsingSessionAIConfig() ? '个人模型调用失败。请检查 Key、模型名、接口地址、余额或网络后再试。' : 'AI 通信失败',
           personality: '未知',
           recommendations: []
-        });
+        }));
       } finally {
         setIsAnalyzing(false);
       }
@@ -331,6 +331,16 @@ export default function App() {
     setAnalysisData(null);
     setIsTasteQuizOpen(false);
     void handleAnalyze(profile);
+  };
+
+  const handleImportChatGptAnalysis = (source: string) => {
+    try {
+      setAnalysisData(normalizeTasteAnalysis(source));
+      setIsModalOpen(true);
+      return true;
+    } catch {
+      return false;
+    }
   };
 
   return (
@@ -377,12 +387,13 @@ export default function App() {
           onSetReview={(anime, review) => handleUpdateAnimeReview(String(anime.id), review)}
           onBrowse={() => navigate('guide')}
           onAnalyze={() => void handleAnalyze()}
-          onCreatePortrait={() => setIsYearbookPortraitOpen(true)}
+          onCreatePortrait={() => { setPortraitScope('year'); setIsYearbookPortraitOpen(true); }}
+          onCreateArchivePortrait={() => { setPortraitScope('archive'); setIsYearbookPortraitOpen(true); }}
         />
       )}
 
       <Suspense fallback={null}>
-        {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} />}
+        {isModalOpen && <AnalysisModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} loading={isAnalyzing} data={analysisData} count={selectedIds.size} rank={displayedRank} archive={fullArchive} chatGptPrompt={chatGptAnalysisPrompt} onImportChatGPT={handleImportChatGptAnalysis} />}
         {isSqlModalOpen && <SqlExportModal isOpen={isSqlModalOpen} onClose={() => setIsSqlModalOpen(false)} selectedAnime={Array.from(selectedAnimeDetails.values())} />}
         {isSqlImportModalOpen && <SqlImportModal isOpen={isSqlImportModalOpen} onClose={() => setIsSqlImportModalOpen(false)} onImport={handleImportArchiveSql} />}
         {isGameOpen && <GameModal isOpen={isGameOpen} onClose={() => setIsGameOpen(false)} animePool={[...selectedAnimeDetails.values(), ...animeList]} />}
@@ -407,7 +418,7 @@ export default function App() {
         {isAISettingsOpen && <AISettingsModal isOpen={isAISettingsOpen} onClose={() => setIsAISettingsOpen(false)} />}
         {isGlobalSearchOpen && <GlobalAnimeSearchModal isOpen={isGlobalSearchOpen} onClose={() => setIsGlobalSearchOpen(false)} selectedIds={selectedIds} onToggle={(anime) => toggleAnime(String(anime.id), anime)} minYear={DEFAULT_START_YEAR} maxYear={DEFAULT_END_YEAR} />}
         {isRecommendationsOpen && <RecommendationsModal isOpen={isRecommendationsOpen} onClose={() => setIsRecommendationsOpen(false)} archive={Array.from(selectedAnimeDetails.values())} fallbackAnime={animeList} selectedIds={selectedIds} onToggle={(anime) => toggleAnime(String(anime.id), anime)} />}
-        {isYearbookPortraitOpen && <YearbookPortraitModal isOpen={isYearbookPortraitOpen} onClose={() => setIsYearbookPortraitOpen(false)} year={activeYear} anime={activeYearArchive} />}
+        {isYearbookPortraitOpen && <YearbookPortraitModal isOpen={isYearbookPortraitOpen} onClose={() => setIsYearbookPortraitOpen(false)} year={activeYear} anime={portraitScope === 'archive' ? fullArchive : activeYearArchive} scope={portraitScope} />}
       </Suspense>
     </div>
   );

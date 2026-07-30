@@ -1,3 +1,5 @@
+import { Anime, UserAnimeReaction, UserAnimeStatus } from '../types';
+
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
 const TIMEOUT_MS = 12000;
@@ -68,7 +70,42 @@ const rememberRecent = (bucket: string[], value: string, max = 6) => {
   if (bucket.length > max) bucket.pop();
 };
 
-const buildPrompt = (animeTitles: string[], rank: string) => `
+export interface TasteAnalysisResult {
+  tags: string[];
+  roast: string;
+  personality: string;
+  avoid: Array<{ title: string; reason: string }>;
+  goldenEra: string;
+  recommendations: Array<{ title: string; reason: string }>;
+}
+
+const statusLabels: Record<UserAnimeStatus, string> = {
+  PLAN: '想看',
+  WATCHING: '追更',
+  COMPLETED: '已看完'
+};
+
+const reactionLabels: Record<UserAnimeReaction, string> = {
+  LOVE: '非常喜欢',
+  LIKE: '喜欢',
+  NEUTRAL: '一般',
+  DISLIKE: '不太喜欢',
+  HATE: '不喜欢'
+};
+
+const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
+
+const toPromptEntry = (anime: Anime) => {
+  const status = statusLabels[anime.userStatus || 'PLAN'];
+  const reaction = reactionLabels[anime.userReaction || 'NEUTRAL'];
+  const aliases = [anime.title.native, anime.title.romaji, anime.title.english].filter(Boolean).join(' / ');
+  const note = anime.userNote?.trim() ? `；短评：${anime.userNote.trim()}` : '';
+  return `- ${getTitle(anime)}（别名：${aliases}；${anime.seasonYear || '年份未知'}；${status}；${reaction}；题材：${anime.genres?.join(' / ') || '未知'}${note}）`;
+};
+
+export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string) => {
+  const entries = anime.map((item) => typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item));
+  return `
     你现在不是在写文章，而是在为程序生成结构化数据。
 
     你的输出将被 JSON.parse 直接解析，因此：
@@ -81,8 +118,8 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
     你是一位资深、客观、非常懂行的老二次元动画鉴赏者（Anime Expert），具备系统性的动画审美分析能力与犀利判断。
 
     输入信息：
-    - 用户已看过的动画列表（包含年份）：
-      ${animeTitles.join(', ')}
+    - 用户年鉴（作品、状态、喜欢程度、短评均为用户主动留下的信息）：
+      ${entries.join('\n') || '无'}
     - 用户等级：
       ${rank}
 
@@ -117,13 +154,14 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
       - reason：原因（节奏、价值观或演出方式等）
     - 需要点名具体作品，作为反面教材
 
-    5. 补番处方（recommendations）
+    5. 补番候选（recommendations）
     - 必须是数组
-    - 正好 3 个对象
+    - 正好 8 个对象，按推荐优先级排列
     - 每个对象必须包含：
       - title：动画标题
       - reason：推荐理由
-    - 推荐作品必须避开用户已看过的动画
+    - 推荐作品必须严格避开用户年鉴中出现的所有标题与别名；不得推荐同一作品的续作、重制版、总集篇或电影版
+    - 8 部作品标题不得重复，也不得是同一系列的不同条目
     - 每条推荐都必须解释“为什么该用户会吃这一套”
 
     6. 黄金年代判定（goldenEra）
@@ -160,35 +198,18 @@ const buildPrompt = (animeTitles: string[], rank: string) => `
       "recommendations": [
         { "title": "示例A", "reason": "示例文本" },
         { "title": "示例B", "reason": "示例文本" },
-        { "title": "示例C", "reason": "示例文本" }
+        { "title": "示例C", "reason": "示例文本" },
+        { "title": "示例D", "reason": "示例文本" },
+        { "title": "示例E", "reason": "示例文本" },
+        { "title": "示例F", "reason": "示例文本" },
+        { "title": "示例G", "reason": "示例文本" },
+        { "title": "示例H", "reason": "示例文本" }
       ]
     }
     
-    再给你一个示例:
-    {
-      "tags": ["string", "string", "string", "string", "string", "string"],
-      "analysis": "string",
-      "personality": "string",
-      "avoid": "string",
-      "goldenEra": "string",
-      "recommendations": [
-        {
-          "title": "string",
-          "reason": "string"
-        },
-        {
-          "title": "string",
-          "reason": "string"
-        },
-        {
-          "title": "string",
-          "reason": "string"
-        }
-      ]
-    }
-
     现在开始生成最终 JSON 输出。
   `;
+};
 
 const parseJsonSafe = (text?: string) => {
   if (!text) throw new Error('Empty response');
@@ -203,7 +224,8 @@ const parseJsonSafe = (text?: string) => {
   }
 };
 
-const ensureShape = (data: any) => {
+export const normalizeTasteAnalysis = (source: unknown): TasteAnalysisResult => {
+  const data = typeof source === 'string' ? parseJsonSafe(source) : source;
   const safe = data || {};
   const fallbackText = '暂无数据';
 
@@ -212,12 +234,12 @@ const ensureShape = (data: any) => {
 
   let recs: Array<{ title: string; reason: string }> = [];
   if (Array.isArray(safe.recommendations)) {
-    recs = safe.recommendations.slice(0, 3).map((r: any) => ({
+    recs = safe.recommendations.slice(0, 8).map((r: any) => ({
       title: String(r?.title || '待补充'),
       reason: String(r?.reason || fallbackText)
     }));
   }
-  while (recs.length < 3) {
+  while (recs.length < 8) {
     recs.push({ title: '待补充', reason: fallbackText });
   }
 
@@ -234,20 +256,14 @@ const ensureShape = (data: any) => {
     avoidList.push({ title: '待补充', reason: fallbackText });
   }
 
-  const normalized = {
+  const normalized: TasteAnalysisResult = {
     tags,
-    analysis: String(safe.analysis || fallbackText),
+    roast: String(safe.roast || safe.analysis || fallbackText),
     personality: String(safe.personality || fallbackText),
     avoid: avoidList,
     goldenEra: String(safe.goldenEra || fallbackText),
     recommendations: recs,
   };
-
-  if (!normalized['roast'] && safe.analysis) {
-    (normalized as any).roast = String(safe.analysis);
-  } else if (safe.roast) {
-    (normalized as any).roast = String(safe.roast);
-  }
 
   return normalized;
 };
@@ -315,7 +331,7 @@ const callDeepSeekRaw = async (prompt: string) => {
   return callServerProxy();
 };
 
-const callDeepSeek = async (prompt: string) => ensureShape(await callDeepSeekRaw(prompt));
+const callDeepSeek = async (prompt: string) => normalizeTasteAnalysis(await callDeepSeekRaw(prompt));
 
 const normalizeResult = (data: any) => {
   if (!data) return data;
@@ -325,8 +341,8 @@ const normalizeResult = (data: any) => {
   return data;
 };
 
-export const analyzeAnimeTaste = async (animeTitles: string[], rank: string) => {
-  const prompt = buildPrompt(animeTitles, rank);
+export const analyzeAnimeTaste = async (anime: Anime[] | string[], rank: string) => {
+  const prompt = buildTasteAnalysisPrompt(anime, rank);
   return normalizeResult(await callDeepSeek(prompt));
 };
 

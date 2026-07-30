@@ -15,11 +15,12 @@ interface ArchivePageProps {
   onBrowse: () => void;
   onAnalyze: () => void;
   onCreatePortrait: () => void;
+  onCreateArchivePortrait: () => void;
 }
 
 const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
 
-export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, onToggle, onSetStatus, onSetReview, onBrowse, onAnalyze, onCreatePortrait }) => {
+export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, onToggle, onSetStatus, onSetReview, onBrowse, onAnalyze, onCreatePortrait, onCreateArchivePortrait }) => {
   const entries = useMemo(() => anime
     .filter((item) => item.seasonYear === year)
     .sort((left, right) => getTitle(left).localeCompare(getTitle(right), 'ja')), [anime, year]);
@@ -61,8 +62,9 @@ export const ArchivePage: React.FC<ArchivePageProps> = ({ anime, profile, year, 
         </section>
       )}
 
-      <div className="fixed bottom-5 right-5 z-20 flex gap-2">
+      <div className="fixed bottom-5 right-5 z-20 flex max-w-[calc(100vw-2.5rem)] flex-wrap justify-end gap-2">
         <button type="button" onClick={onCreatePortrait} disabled={!entries.length} className="min-h-11 border border-yearbook-line bg-yearbook-surface px-4 text-sm font-medium text-yearbook-ink shadow-[0_12px_28px_rgba(38,54,77,0.14)] transition hover:bg-yearbook-blue disabled:cursor-not-allowed disabled:opacity-50">年度画像</button>
+        <button type="button" onClick={onCreateArchivePortrait} disabled={!anime.length} className="min-h-11 border border-yearbook-line bg-yearbook-surface px-4 text-sm font-medium text-yearbook-ink shadow-[0_12px_28px_rgba(38,54,77,0.14)] transition hover:bg-yearbook-blue disabled:cursor-not-allowed disabled:opacity-50">全站画像</button>
         <button type="button" onClick={onAnalyze} className="min-h-11 bg-yearbook-sky px-4 text-sm font-medium text-white shadow-[0_12px_28px_rgba(98,159,220,0.32)] transition hover:bg-sky-600">生成鉴赏档案</button>
       </div>
     </main>
