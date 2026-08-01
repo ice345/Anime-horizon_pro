@@ -66,23 +66,26 @@ export const GuidePage: React.FC<GuidePageProps> = ({
 
   useEffect(() => {
     const controller = new AbortController();
-    setIsLoading(true);
-    setAnime([]);
-    onAnimeLoaded([]);
-    fetchAnimeBySeason(year, season, itemsPerSeason, controller.signal)
-      .then((data) => {
-        setAnime(data);
-        onAnimeLoaded(data);
-      })
-      .catch((error) => {
-        if (controller.signal.aborted) return;
-        console.error('Failed to load guide:', error);
-        onLoadError(error instanceof Error ? error.message : '番剧目录加载失败，请稍后重试。');
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
-      });
+    const loadTimer = window.setTimeout(() => {
+      if (controller.signal.aborted) return;
+      setIsLoading(true);
+      setAnime([]);
+      onAnimeLoaded([]);
+      fetchAnimeBySeason(year, season, itemsPerSeason, controller.signal)
+        .then((data) => {
+          setAnime(data);
+          onAnimeLoaded(data);
+        })
+        .catch((error) => {
+          if (controller.signal.aborted) return;
+          onLoadError(error instanceof Error ? error.message : '番剧目录加载失败，请稍后重试。');
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsLoading(false);
+        });
+    }, 0);
     return () => {
+      window.clearTimeout(loadTimer);
       controller.abort();
     };
   }, [itemsPerSeason, onAnimeLoaded, onLoadError, reloadKey, season, year]);

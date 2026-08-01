@@ -29,6 +29,7 @@ export default tseslint.config(
         FileReader: 'readonly',
         FormData: 'readonly',
         IntersectionObserver: 'readonly',
+        HTMLElement: 'readonly',
         localStorage: 'readonly',
         navigator: 'readonly',
         process: 'readonly',
@@ -63,6 +64,13 @@ export default tseslint.config(
         it: 'readonly',
         test: 'readonly',
       },
+    },
+  },
+  {
+    files: ['server.mjs', 'scripts/**/*.mjs'],
+    rules: {
+      // Server/CLI output is operational telemetry, not browser application logging.
+      'no-console': 'off',
     },
   }
 );

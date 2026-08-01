@@ -8,6 +8,7 @@ import {
   startEmojiGame,
 } from '../services/geminiService';
 import { Anime, Season, SEASON_CN } from '../types';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface GameModalProps {
   isOpen: boolean;
@@ -65,6 +66,8 @@ const shuffle = <T,>(items: T[]) => {
   }
   return next;
 };
+
+const pickRandom = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
 
 const getAnimeTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
 const getSeasonLabel = (season: Season, year: number) => `${year} ${SEASON_CN[season].split(' ')[0]}`;
@@ -127,10 +130,9 @@ const loadStats = (): GameStats => {
 export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose, animePool }) => {
   const [mode, setMode] = useState<GameMode>('MENU');
   const [stats, setStats] = useState<GameStats>(loadStats);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (isOpen) setMode('MENU');
-  }, [isOpen]);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stats));
@@ -153,12 +155,21 @@ export const GameModal: React.FC<GameModalProps> = ({ isOpen, onClose, animePool
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-sky-950/45 p-4 backdrop-blur-xl animate-fade-in">
-      <div className="relative flex h-[720px] max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/70 bg-white/[0.92] text-slate-800 shadow-[0_30px_100px_rgba(14,116,144,0.32)]">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="game-modal-title"
+        className="relative flex h-[720px] max-h-[92vh] w-full max-w-5xl overflow-hidden rounded-[2rem] border border-white/70 bg-white/[0.92] text-slate-800 shadow-[0_30px_100px_rgba(14,116,144,0.32)]"
+      >
         <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(rgba(14,116,144,0.06)_1px,transparent_1px)] bg-[size:100%_34px]" />
         <div className="hidden w-64 shrink-0 border-r border-sky-100/80 bg-sky-50/70 p-5 md:block">
           <div className="mb-8">
             <p className="text-xs font-black uppercase tracking-[0.28em] text-sky-500">Club Room</p>
-            <h2 className="mt-2 font-jp text-2xl font-black text-slate-900">游戏大厅</h2>
+            <h2 id="game-modal-title" className="mt-2 font-jp text-2xl font-black text-slate-900">
+              游戏大厅
+            </h2>
           </div>
 
           <div className="grid gap-3">
@@ -858,7 +869,7 @@ const BroadcastSeasonGame: React.FC<{ animePool: Anime[]; onResult: (win: boolea
   const setQuestion = (nextRound: number) => {
     const candidates = getPlayableAnime(animePool);
     if (!candidates.length) return false;
-    const nextTarget = candidates[Math.floor(Math.random() * candidates.length)];
+    const nextTarget = pickRandom(candidates);
     const correct = getSeasonLabel(nextTarget.season, nextTarget.seasonYear);
     const fromLibrary = shuffle(
       candidates
@@ -972,7 +983,7 @@ const DossierGame: React.FC<{ animePool: Anime[]; onResult: (win: boolean, point
   const setQuestion = (nextRound: number) => {
     const candidates = getPlayableAnime(animePool);
     if (candidates.length < 4) return false;
-    const nextTarget = candidates[Math.floor(Math.random() * candidates.length)];
+    const nextTarget = pickRandom(candidates);
     setTarget(nextTarget);
     setOptions(
       shuffle([

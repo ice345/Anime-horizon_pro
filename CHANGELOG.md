@@ -9,13 +9,16 @@
 - AniList、AI、备份和本地存储的 Zod 边界校验。
 - JSON v2 备份迁移、大小/数量限制和确认预览；SQL 固定字段解析、大小/行数限制和确认预览。
 - AniList TTL/容量缓存、并发请求去重、响应校验、严格本地模式和取消请求。
+- Playwright Chromium/headless-shell 安装脚本与直接路由、Modal 键盘行为 E2E smoke 覆盖。
 
 ### Security
 
 - AI 代理增加 CORS 白名单、固定模型、请求/响应上限、IP 限流、并发上限、超时、安全响应头和脱敏错误。
+- AI 代理支持 Upstash/Redis REST 共享分钟与每日配额；共享存储故障时生产默认 fail-closed。
 - 个人 AI 配置仅保存在当前会话，并限制为 HTTPS endpoint（本机开发允许 HTTP）。
 
 ### Changed
 
 - Render 构建使用 `npm ci`；JSON 成为主备份格式，SQL 保留为兼容性导出。
 - 目录请求由 `GuidePage` 作为界面请求 owner，服务层负责缓存、去重和取消；App 不再重复预加载同一季度。
+- Modal 统一支持 `role=dialog`、`aria-modal`、Escape 关闭、Tab 焦点循环和关闭后焦点恢复；lint warning 已清零。

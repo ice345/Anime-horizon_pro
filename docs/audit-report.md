@@ -380,9 +380,14 @@ Node 静态服务器会把不存在的文件回退到 `dist/index.html`（`serve
 - Phase 3：AniList TTL/容量缓存、in-flight 去重、AbortSignal、非重试错误分类；目录请求 owner 收敛到 `GuidePage`，避免 App 重复预加载同一季度；新增集中式两路由规范化和未知路径回退。
 - 测试：schema、备份、存储、SQL、AniList cache/response、画像和 AI 代理测试均已加入；当前 `npm test` 的服务测试需要允许本地临时端口监听。
 
-仍未闭环：
+本轮已闭环：
 
-- `npm run lint` 目前 0 errors 但保留 legacy React effect、随机游戏和脚本日志 warning；应在后续专门重构后提高门禁强度。
-- Playwright E2E 配置已经存在，但本次环境的 Chromium 安装未完成，因此不把 E2E 结果宣称为通过。
-- AI 代理的限流/预算仍是单实例内存级；生产多实例和真实账单仍需要边缘层配额、供应商预算和告警。
-- `App.tsx` 尚未完全拆成 hooks/repository，路由仍是轻量 `pushState`，Modal focus trap/ESC/焦点恢复仍待 Phase 4。
+- `npm run lint` 已达到 0 errors / 0 warnings；同步 effect、游戏随机数、依赖数组和服务/脚本日志均已按语义处理。
+- Playwright 已固定到 1.61.1，`npm run e2e:install` 安装 Chromium/headless-shell；浏览器 smoke 覆盖直接访问 `/archive` 和 Modal Escape/焦点恢复，当前 2/2 通过。
+- AI 代理保留单实例并发保护，并新增可选 Upstash/Redis REST 固定窗口计数：按 IP 每分钟、跨实例每分钟和跨实例每日配额；共享存储故障时生产默认 fail-closed。
+- 所有 Modal 已接入统一 `useModalA11y`：`role=dialog`/`aria-modal` 关联、Escape 关闭、Tab 焦点循环、初始焦点与关闭后焦点恢复。
+
+仍需独立决策或后续迭代：
+
+- `App.tsx` 尚未完全拆成 hooks/repository，路由仍是轻量 `pushState`。
+- 真实生产环境仍需要供应商账单预算、边缘层告警和实际访问量下的性能采样；应用配额不替代供应商费用硬上限。

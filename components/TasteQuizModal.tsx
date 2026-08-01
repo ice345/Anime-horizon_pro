@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { OtakuRank } from '../types';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface TasteQuizResult {
   inputs: string[];
@@ -56,6 +57,8 @@ export const TasteQuizModal: React.FC<TasteQuizModalProps> = ({ isOpen, onClose,
     rank: QUESTION_GROUPS[4].options[1],
   });
   const [titles, setTitles] = useState('吹响！上低音号\n利兹与青鸟');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   const preview = useMemo(() => {
     return QUESTION_GROUPS.map((group) => answers[group.id])
@@ -85,14 +88,25 @@ export const TasteQuizModal: React.FC<TasteQuizModalProps> = ({ isOpen, onClose,
 
   return (
     <div className="fixed inset-0 z-[75] flex items-center justify-center p-4 bg-sky-950/45 backdrop-blur-xl animate-fade-in">
-      <div className="flex w-full max-w-3xl max-h-[92vh] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/90 text-slate-800 shadow-[0_30px_90px_rgba(52,144,190,0.28)]">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="taste-quiz-title"
+        className="flex w-full max-w-3xl max-h-[92vh] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/90 text-slate-800 shadow-[0_30px_90px_rgba(52,144,190,0.28)]"
+      >
         <div className="shrink-0 flex items-start justify-between gap-4 border-b border-sky-100 bg-gradient-to-r from-sky-50 to-rose-50 px-6 py-5">
           <div>
             <p className="text-xs font-bold uppercase tracking-[0.28em] text-sky-500">Taste Check</p>
-            <h2 className="mt-1 font-jp text-2xl font-black text-slate-900">填写偏好画像</h2>
+            <h2 id="taste-quiz-title" className="mt-1 font-jp text-2xl font-black text-slate-900">
+              填写偏好画像
+            </h2>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">代表作、情绪偏好、制作口味。</p>
           </div>
           <button
+            type="button"
+            aria-label="关闭偏好画像"
             onClick={onClose}
             className="rounded-full p-2 text-slate-400 transition hover:bg-slate-900/5 hover:text-slate-900"
           >

@@ -153,17 +153,27 @@ export default function App() {
       archiveStorageSyncRef.current = false;
       return;
     }
+    let feedbackTimer: number | undefined;
     try {
       saveArchiveState({ selectedIds, selectedAnimeDetails });
     } catch {
-      setFeedback('本地年鉴保存失败，可能是浏览器存储空间不足。请先导出 JSON 备份。');
+      feedbackTimer = window.setTimeout(
+        () => setFeedback('本地年鉴保存失败，可能是浏览器存储空间不足。请先导出 JSON 备份。'),
+        0
+      );
     }
+    return () => {
+      if (feedbackTimer !== undefined) window.clearTimeout(feedbackTimer);
+    };
   }, [selectedIds, selectedAnimeDetails]);
 
   useEffect(() => {
-    localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
-    if (route === 'guide' && (activeYear < yearRange.start || activeYear > yearRange.end)) setActiveYear(yearRange.end);
-  }, [activeYear, route, yearRange]);
+    try {
+      localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
+    } catch {
+      // A private browsing session may reject localStorage writes; the in-memory range remains usable.
+    }
+  }, [yearRange]);
 
   const navigate = (nextRoute: AppRoute) => {
     if (nextRoute === 'record' && selectedAnimeDetails.size) {
@@ -188,11 +198,12 @@ export default function App() {
     [selectedAnimeDetails]
   );
 
-  useEffect(() => {
-    if (route === 'record' && archiveYears.length && !archiveYears.includes(activeYear)) {
-      setActiveYear(archiveYears[0]);
-    }
-  }, [activeYear, archiveYears, route]);
+  const displayedYear =
+    route === 'record'
+      ? archiveYears.includes(activeYear)
+        ? activeYear
+        : archiveYears[0] || activeYear
+      : Math.min(yearRange.end, Math.max(yearRange.start, activeYear));
 
   useEffect(() => {
     const handlePopState = () => {
@@ -334,8 +345,8 @@ export default function App() {
     [selectedAnimeDetails]
   );
   const activeYearArchive = useMemo(
-    () => Array.from<Anime>(selectedAnimeDetails.values()).filter((anime) => anime.seasonYear === activeYear),
-    [activeYear, selectedAnimeDetails]
+    () => Array.from<Anime>(selectedAnimeDetails.values()).filter((anime) => anime.seasonYear === displayedYear),
+    [displayedYear, selectedAnimeDetails]
   );
   const activeYearProfile = useMemo(() => buildTasteProfile(activeYearArchive), [activeYearArchive]);
   const fullArchive = useMemo(() => Array.from(selectedAnimeDetails.values()), [selectedAnimeDetails]);
@@ -362,8 +373,7 @@ export default function App() {
           profile?.rank || rank
         );
         setAnalysisData(result);
-      } catch (error) {
-        console.error(error);
+      } catch {
         setAnalysisData(
           normalizeTasteAnalysis({
             roast: isUsingSessionAIConfig()
@@ -413,7 +423,7 @@ export default function App() {
       />
       <YearNavigation
         years={route === 'record' ? archiveYears : years}
-        activeYear={activeYear}
+        activeYear={displayedYear}
         onSelect={setActiveYear}
         onOpenSettings={() => setIsSettingsOpen(true)}
         emptyLabel={route === 'record' ? '收录作品后会在这里出现对应年份' : undefined}
@@ -421,7 +431,7 @@ export default function App() {
 
       {route === 'guide' ? (
         <GuidePage
-          year={activeYear}
+          year={displayedYear}
           itemsPerSeason={itemsPerSeason}
           selectedIds={selectedIds}
           selectedAnime={Array.from(selectedAnimeDetails.values())}
@@ -437,7 +447,7 @@ export default function App() {
         <ArchivePage
           anime={Array.from(selectedAnimeDetails.values())}
           profile={activeYearProfile}
-          year={activeYear}
+          year={displayedYear}
           onToggle={(anime) => toggleAnime(String(anime.id), anime)}
           onSetStatus={(anime, status) => handleUpdateAnimeStatus(String(anime.id), status)}
           onSetReview={(anime, review) => handleUpdateAnimeReview(String(anime.id), review)}
@@ -529,7 +539,7 @@ export default function App() {
           <RecommendationsModal
             isOpen={isRecommendationsOpen}
             onClose={() => setIsRecommendationsOpen(false)}
-            archive={Array.from(selectedAnimeDetails.values())}
+            archive={fullArchive}
             fallbackAnime={animeList}
             selectedIds={selectedIds}
             onToggle={(anime) => toggleAnime(String(anime.id), anime)}
@@ -539,7 +549,7 @@ export default function App() {
           <YearbookPortraitModal
             isOpen={isYearbookPortraitOpen}
             onClose={() => setIsYearbookPortraitOpen(false)}
-            year={activeYear}
+            year={displayedYear}
             anime={portraitScope === 'archive' ? fullArchive : activeYearArchive}
             scope={portraitScope}
           />

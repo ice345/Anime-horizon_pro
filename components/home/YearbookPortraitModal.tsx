@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { buildPortraitImagePrompt, copyBridgePrompt, openChatGPT } from '../../services/chatgptBridge';
 import { buildTasteProfile } from '../../services/tasteProfile';
 import { Anime, UserAnimeStatus } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface YearbookPortraitModalProps {
   isOpen: boolean;
@@ -26,6 +27,8 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({
 }) => {
   const profile = useMemo(() => buildTasteProfile(anime), [anime]);
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const dialogRef = useRef<HTMLElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
   const statusCounts = useMemo(
     () => ({
       PLAN: anime.filter((item) => (item.userStatus || 'PLAN') === 'PLAN').length,
@@ -60,6 +63,8 @@ export const YearbookPortraitModal: React.FC<YearbookPortraitModalProps> = ({
   return (
     <div className="fixed inset-0 z-[86] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-sm animate-fade-in">
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="portrait-title"

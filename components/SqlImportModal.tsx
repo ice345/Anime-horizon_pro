@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { MAX_SQL_IMPORT_BYTES, parseArchiveSql } from '../services/archiveSql';
 import { Anime } from '../types';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface SqlImportModalProps {
   isOpen: boolean;
@@ -13,6 +14,9 @@ export const SqlImportModal: React.FC<SqlImportModalProps> = ({ isOpen, onClose,
   const [message, setMessage] = useState('');
   const [preview, setPreview] = useState<Anime[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -57,6 +61,8 @@ export const SqlImportModal: React.FC<SqlImportModalProps> = ({ isOpen, onClose,
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/60 p-4 backdrop-blur-md animate-fade-in sm:items-center">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sql-import-title"

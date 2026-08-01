@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ArchiveRecommendation, fetchArchiveRecommendations } from '../../services/anilistService';
 import { Anime } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface RecommendationsModalProps {
   isOpen: boolean;
@@ -24,6 +25,8 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
   const [recommendations, setRecommendations] = useState<ArchiveRecommendation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const dialogRef = useRef<HTMLElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
   const archiveKey = useMemo(
     () =>
       archive
@@ -79,13 +82,15 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [archiveKey, fallbackKey, isOpen]);
+  }, [archive, archiveKey, fallbackAnime, fallbackKey, isOpen]);
 
   if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[85] flex items-start justify-center overflow-y-auto bg-slate-950/45 p-4 backdrop-blur-sm">
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="recommendation-title"

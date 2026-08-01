@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { Anime, SEASON_CN, UserAnimeReaction, UserAnimeStatus } from '../types';
 
 interface AnimeCardProps {
@@ -68,17 +68,18 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({
   const userStatus = anime.userStatus || 'PLAN';
   const userReaction = anime.userReaction || 'NEUTRAL';
   const [isReviewOpen, setIsReviewOpen] = useState(false);
-  const [reactionDraft, setReactionDraft] = useState<UserAnimeReaction>(userReaction);
-  const [noteDraft, setNoteDraft] = useState(anime.userNote || '');
-
-  useEffect(() => {
-    setReactionDraft(userReaction);
-    setNoteDraft(anime.userNote || '');
-  }, [anime.id, anime.userNote, userReaction]);
+  const [reviewDraft, setReviewDraft] = useState<{
+    reaction: UserAnimeReaction;
+    note: string;
+  } | null>(null);
+  const reactionDraft = reviewDraft?.reaction || userReaction;
+  const noteDraft = reviewDraft?.note ?? '';
 
   const saveReview = () => {
+    if (!reviewDraft) return;
     onSetReview?.({ reaction: reactionDraft, note: noteDraft.trim().slice(0, 280) });
     setIsReviewOpen(false);
+    setReviewDraft(null);
   };
 
   return (
@@ -173,7 +174,15 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({
             {onSetReview && (
               <button
                 type="button"
-                onClick={() => setIsReviewOpen((open) => !open)}
+                onClick={() => {
+                  if (isReviewOpen) {
+                    setIsReviewOpen(false);
+                    setReviewDraft(null);
+                    return;
+                  }
+                  setReviewDraft({ reaction: userReaction, note: anime.userNote || '' });
+                  setIsReviewOpen(true);
+                }}
                 aria-expanded={isReviewOpen}
                 className="shrink-0 text-sm font-medium text-yearbook-sky transition hover:text-yearbook-ink"
               >
@@ -195,7 +204,12 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({
                 <span className="mb-1.5 block">看后感受</span>
                 <select
                   value={reactionDraft}
-                  onChange={(event) => setReactionDraft(event.target.value as UserAnimeReaction)}
+                  onChange={(event) =>
+                    setReviewDraft((previous) => ({
+                      reaction: event.target.value as UserAnimeReaction,
+                      note: previous?.note ?? noteDraft,
+                    }))
+                  }
                   aria-label={`${displayTitle} 的喜欢程度`}
                   className="w-full border border-yearbook-line bg-white px-2.5 py-2 text-sm text-yearbook-ink outline-none transition focus:border-yearbook-sky"
                 >
@@ -210,7 +224,12 @@ export const AnimeCard: React.FC<AnimeCardProps> = ({
                 <span className="mb-1.5 block">一句短评</span>
                 <textarea
                   value={noteDraft}
-                  onChange={(event) => setNoteDraft(event.target.value)}
+                  onChange={(event) =>
+                    setReviewDraft((previous) => ({
+                      reaction: previous?.reaction ?? reactionDraft,
+                      note: event.target.value,
+                    }))
+                  }
                   maxLength={280}
                   rows={3}
                   aria-label={`${displayTitle} 的短评`}

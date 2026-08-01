@@ -201,7 +201,7 @@ async function downloadImages(animeList) {
       anime.coverImage.extraLarge = `/data/images/${filename}`;
       anime.coverImage.large = `/data/images/${filename}`;
       return anime; // Already cached
-    } catch (_) {
+    } catch {
       // continue to download
     }
 
@@ -262,7 +262,7 @@ async function yearDataExists(year) {
   try {
     await fs.access(path.join(publicDataDir, `anime-${year}.json`));
     return true;
-  } catch (_) {
+  } catch {
     return false;
   }
 }
@@ -278,7 +278,7 @@ async function readSyncMeta() {
   try {
     const raw = await fs.readFile(metaPath, 'utf8');
     return JSON.parse(raw);
-  } catch (_) {
+  } catch {
     return null;
   }
 }

@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { NormalizedBackup } from '../features/backup/backupSchema';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -35,15 +36,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onClearSelection,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [jsonPreview, setJsonPreview] = useState<NormalizedBackup | null>(null);
   const [jsonMessage, setJsonMessage] = useState('');
 
-  useEffect(() => {
-    if (!isOpen) {
-      setJsonPreview(null);
-      setJsonMessage('');
-    }
-  }, [isOpen]);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -77,6 +74,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/80 backdrop-blur-xl animate-fade-in">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"

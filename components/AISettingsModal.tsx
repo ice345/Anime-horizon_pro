@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   clearSessionAIConfig,
   getSessionAIConfig,
   SessionAIProvider,
   setSessionAIConfig,
 } from '../services/geminiService';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface AISettingsModalProps {
   isOpen: boolean;
@@ -20,23 +21,16 @@ const providerLabel: Record<SessionAIProvider, string> = {
 };
 
 export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClose }) => {
-  const [provider, setProvider] = useState<SessionAIProvider>('DEEPSEEK');
+  const [initialConfig] = useState(() => getSessionAIConfig());
+  const [provider, setProvider] = useState<SessionAIProvider>(() => initialConfig?.provider || 'DEEPSEEK');
   const [apiKey, setApiKey] = useState('');
-  const [endpoint, setEndpoint] = useState(DEEPSEEK_ENDPOINT);
-  const [model, setModel] = useState(DEEPSEEK_MODEL);
-  const [activeProvider, setActiveProvider] = useState<SessionAIProvider | null>(null);
+  const [endpoint, setEndpoint] = useState(() => initialConfig?.endpoint || DEEPSEEK_ENDPOINT);
+  const [model, setModel] = useState(() => initialConfig?.model || DEEPSEEK_MODEL);
+  const [activeProvider, setActiveProvider] = useState<SessionAIProvider | null>(() => initialConfig?.provider || null);
   const [message, setMessage] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    const config = getSessionAIConfig();
-    setProvider(config?.provider || 'DEEPSEEK');
-    setEndpoint(config?.endpoint || DEEPSEEK_ENDPOINT);
-    setModel(config?.model || DEEPSEEK_MODEL);
-    setApiKey('');
-    setActiveProvider(config?.provider || null);
-    setMessage('');
-  }, [isOpen]);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -75,6 +69,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-fade-in">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="ai-settings-title"

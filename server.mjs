@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { createReadStream, statSync } from 'node:fs';
 import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createQuotaStore, QuotaStoreUnavailableError } from './quotaStore.mjs';
 
 const moduleLocation = (() => {
   try {
@@ -37,19 +38,35 @@ const maxUpstreamResponseBytes = readPositiveInteger(process.env.AI_MAX_RESPONSE
 const upstreamTimeoutMs = readPositiveInteger(process.env.AI_TIMEOUT_MS, 15_000);
 const rateLimitWindowMs = 60_000;
 const rateLimitMax = readPositiveInteger(process.env.AI_RATE_LIMIT_PER_MINUTE, 10);
+const globalRateLimitMax = readPositiveInteger(process.env.AI_GLOBAL_RATE_LIMIT_PER_MINUTE, rateLimitMax * 10);
+const globalDailyLimit = readPositiveInteger(process.env.AI_GLOBAL_RATE_LIMIT_PER_DAY, 10_000);
 const maxConcurrentRequests = readPositiveInteger(process.env.AI_MAX_CONCURRENCY, 2);
+const quotaStore = createQuotaStore();
 const allowedModels = new Set(
   (process.env.AI_ALLOWED_MODELS || deepseekModel)
     .split(',')
     .map((model) => model.trim())
     .filter(Boolean)
 );
-const rateLimitBuckets = new Map();
 let activeAIRequests = 0;
 
 if (!allowedModels.size) allowedModels.add(deepseekModel);
 if (isProduction && configuredCorsOrigins.split(',').some((origin) => origin.trim() === '*')) {
   throw new Error('CORS_ORIGIN=* is not allowed in production; configure CORS_ORIGINS explicitly.');
+}
+
+if (isProduction && process.env.AI_QUOTA_REDIS_URL && !process.env.AI_QUOTA_REDIS_TOKEN) {
+  throw new Error('AI_QUOTA_REDIS_TOKEN is required when AI_QUOTA_REDIS_URL is configured in production.');
+}
+
+if (isProduction && process.env.AI_QUOTA_REDIS_URL) {
+  let quotaUrl;
+  try {
+    quotaUrl = new URL(process.env.AI_QUOTA_REDIS_URL);
+  } catch {
+    throw new Error('AI_QUOTA_REDIS_URL must be a valid URL.');
+  }
+  if (quotaUrl.protocol !== 'https:') throw new Error('AI_QUOTA_REDIS_URL must use HTTPS in production.');
 }
 
 const corsOrigins = new Set(
@@ -186,26 +203,8 @@ const getClientIp = (req) => {
   return req.socket.remoteAddress || 'unknown';
 };
 
-const checkRateLimit = (key, now = Date.now()) => {
-  const current = rateLimitBuckets.get(key);
-  if (!current || now - current.startedAt >= rateLimitWindowMs) {
-    rateLimitBuckets.set(key, { startedAt: now, count: 1 });
-    return { allowed: true, retryAfter: 0 };
-  }
-
-  if (current.count >= rateLimitMax) {
-    return {
-      allowed: false,
-      retryAfter: Math.max(1, Math.ceil((rateLimitWindowMs - (now - current.startedAt)) / 1000)),
-    };
-  }
-
-  current.count += 1;
-  return { allowed: true, retryAfter: 0 };
-};
-
 export const resetRateLimitState = () => {
-  rateLimitBuckets.clear();
+  quotaStore.reset();
   activeAIRequests = 0;
 };
 
@@ -247,12 +246,41 @@ const handleDeepSeek = async (req, res) => {
     return;
   }
 
-  const rateLimit = checkRateLimit(getClientIp(req));
-  if (!rateLimit.allowed) {
-    sendError(req, res, 429, 'RATE_LIMITED', 'Too many AI requests. Try again later.', {
-      'Retry-After': String(rateLimit.retryAfter),
+  try {
+    const clientQuota = await quotaStore.consume({
+      scope: `client:${getClientIp(req)}`,
+      limit: rateLimitMax,
+      windowMs: rateLimitWindowMs,
     });
-    return;
+    if (!clientQuota.allowed) {
+      sendError(req, res, 429, 'RATE_LIMITED', 'Too many AI requests. Try again later.', {
+        'Retry-After': String(clientQuota.retryAfter),
+      });
+      return;
+    }
+    const globalQuota = await quotaStore.consume({
+      scope: 'global-minute',
+      limit: globalRateLimitMax,
+      windowMs: rateLimitWindowMs,
+    });
+    const dailyQuota = await quotaStore.consume({
+      scope: 'global-day',
+      limit: globalDailyLimit,
+      windowMs: 24 * 60 * 60 * 1000,
+    });
+    const exceededQuota = [globalQuota, dailyQuota].find((quota) => !quota.allowed);
+    if (exceededQuota) {
+      sendError(req, res, 429, 'AI_QUOTA_EXCEEDED', 'Shared AI quota is exhausted. Try again later.', {
+        'Retry-After': String(exceededQuota.retryAfter),
+      });
+      return;
+    }
+  } catch (error) {
+    if (error instanceof QuotaStoreUnavailableError) {
+      sendError(req, res, 503, 'AI_QUOTA_UNAVAILABLE', 'AI quota service is temporarily unavailable.');
+      return;
+    }
+    throw error;
   }
 
   if (activeAIRequests >= maxConcurrentRequests) {

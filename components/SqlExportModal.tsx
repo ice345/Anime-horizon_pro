@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Anime } from '../types';
 import { generateArchiveSql } from '../services/archiveSql';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface SqlExportModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface SqlExportModalProps {
 
 export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose, selectedAnime }) => {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -72,6 +75,8 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl animate-fade-in sm:items-center">
       <div
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sql-export-title"

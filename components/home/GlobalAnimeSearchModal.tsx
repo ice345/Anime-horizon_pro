@@ -1,6 +1,7 @@
-import React, { FormEvent, useState } from 'react';
+import React, { FormEvent, useRef, useState } from 'react';
 import { searchAnime } from '../../services/anilistService';
 import { Anime } from '../../types';
+import { useModalA11y } from '../../hooks/useModalA11y';
 
 interface GlobalAnimeSearchModalProps {
   isOpen: boolean;
@@ -26,6 +27,9 @@ export const GlobalAnimeSearchModal: React.FC<GlobalAnimeSearchModalProps> = ({
   const [results, setResults] = useState<Anime[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -47,6 +51,8 @@ export const GlobalAnimeSearchModal: React.FC<GlobalAnimeSearchModalProps> = ({
   return (
     <div className="fixed inset-0 z-[90] flex items-start justify-center overflow-y-auto bg-slate-950/35 px-4 py-8 backdrop-blur-sm sm:items-center">
       <section
+        ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="global-search-title"
@@ -77,7 +83,7 @@ export const GlobalAnimeSearchModal: React.FC<GlobalAnimeSearchModalProps> = ({
           className="grid gap-3 border-b border-yearbook-line bg-yearbook-blue/35 p-5 sm:grid-cols-[minmax(0,1fr)_130px_auto] sm:px-7"
         >
           <input
-            autoFocus
+            data-modal-autofocus="true"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="输入作品名，例如：轻音少女、EVA、紫罗兰"

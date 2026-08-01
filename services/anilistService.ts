@@ -237,9 +237,6 @@ async function fetchLocalBySeason(
   } catch (error) {
     if (signal?.aborted) throw error;
     if (DATA_MODE === 'local-strict') throw new Error(`严格本地模式缺少 ${year} 年数据`, { cause: error });
-    console.warn(
-      `[LOCAL DATA] ${error instanceof Error ? error.message : 'invalid local data'}; falling back to remote`
-    );
     return fetchRemoteBySeason(year, season, perSeason, signal);
   }
 }

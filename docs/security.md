@@ -22,12 +22,12 @@
 
 - `CORS_ORIGINS`/兼容的 `CORS_ORIGIN` 来源白名单；生产环境禁止 `*`。
 - 请求体、Prompt、上游响应大小上限。
-- 按 IP 的内存窗口限流和全局并发上限。
+- 按 IP 的窗口限流、全局分钟/日配额和全局并发上限。
 - 上游请求超时与安全错误映射；客户端不会收到上游原始错误正文。
 - 固定服务端模型，不接受请求体的 `model` 覆盖。
 - `nosniff`、`frame-ancestors`、`Referrer-Policy`、`Permissions-Policy` 和生产 HSTS 等响应头。
 
-这些限制是单实例内存限制。多实例部署必须在边缘层或共享存储中补充限流，否则每个实例都会有独立配额。
+未配置共享存储时，窗口计数仍是单实例内存限制。多实例部署应配置 Upstash Redis REST（或兼容 pipeline 的 Redis REST 网关），让所有实例使用同一组计数器；共享存储不可用时默认 fail-closed，避免故障期间无界放大 AI 费用。
 
 ## 生产环境变量
 
@@ -44,6 +44,8 @@ CORS_ORIGINS=https://app.example.com
 ```env
 AI_ALLOWED_MODELS=deepseek-v4-flash
 AI_RATE_LIMIT_PER_MINUTE=10
+AI_GLOBAL_RATE_LIMIT_PER_MINUTE=100
+AI_GLOBAL_RATE_LIMIT_PER_DAY=10000
 AI_MAX_CONCURRENCY=2
 AI_MAX_BODY_BYTES=32768
 AI_MAX_PROMPT_CHARS=16000
@@ -51,20 +53,31 @@ AI_MAX_RESPONSE_BYTES=512000
 AI_TIMEOUT_MS=15000
 ```
 
+多实例生产环境追加：
+
+```env
+AI_QUOTA_REDIS_URL=https://your-database.upstash.io
+AI_QUOTA_REDIS_TOKEN=...
+AI_QUOTA_FAIL_CLOSED=true
+AI_QUOTA_TIMEOUT_MS=2000
+```
+
+配额使用固定时间窗口：每 IP 每分钟、所有实例共享每分钟，以及所有实例共享每日请求数。Redis REST 使用 `INCR + EXPIRE` pipeline；不要把 Token 放进 `VITE_` 变量。`AI_QUOTA_FAIL_CLOSED=false` 只适合本地或明确接受回退到单实例限流的环境。
+
 如果前端部署在 Cloudflare Pages，`CORS_ORIGINS` 必须填 Pages 的实际 origin；多个 origin 用逗号分隔。不要把 `DEEPSEEK_API_KEY`、上游 Key 或任何服务端凭证写成 `VITE_` 环境变量。
 
 ## 状态码约定
 
-| 状态码  | 含义                           |
-| ------- | ------------------------------ |
-| 400     | JSON 无效或缺少 Prompt         |
-| 403     | Origin 不在白名单              |
-| 408/504 | 当前代理使用 504 表示上游超时  |
-| 413     | 请求体或 Prompt 超限           |
-| 429     | 代理限流、并发已满或上游限流   |
-| 502     | 上游不可用、返回错误或响应过大 |
-| 503     | 服务端没有配置 Key             |
-| 405     | HTTP 方法不支持                |
+| 状态码  | 含义                                |
+| ------- | ----------------------------------- |
+| 400     | JSON 无效或缺少 Prompt              |
+| 403     | Origin 不在白名单                   |
+| 408/504 | 当前代理使用 504 表示上游超时       |
+| 413     | 请求体或 Prompt 超限                |
+| 429     | 代理限流、并发已满或上游限流        |
+| 502     | 上游不可用、返回错误或响应过大      |
+| 503     | 服务端没有配置 Key 或共享配额不可用 |
+| 405     | HTTP 方法不支持                     |
 
 ## 日志与监控
 
@@ -74,7 +87,7 @@ AI_TIMEOUT_MS=15000
 - 完整 Prompt、短评、年鉴列表和上游响应正文。
 - 通过异常对象间接包含的完整请求配置。
 
-生产环境应在 Render/Cloudflare 配置每日预算告警、上游费用告警、429/5xx 速率告警和单 IP 异常请求告警。当前内存计数器重启后会清零，不等同于账单级预算；真正的每日硬上限应由供应商或边缘网关补充。
+生产环境应在 Render/Cloudflare 配置每日预算告警、上游费用告警、429/5xx 速率告警和单 IP 异常请求告警。应用配额保护请求数，但不等同于供应商账单级预算；仍应在上游供应商配置每日预算或费用告警。
 
 ## Turnstile 评估
 

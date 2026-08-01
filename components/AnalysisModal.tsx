@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Anime, OtakuRank } from '../types';
 import { copyBridgePrompt, openChatGPT } from '../services/chatgptBridge';
 import { TasteAnalysisResult } from '../services/geminiService';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface AnalysisModalProps {
   isOpen: boolean;
@@ -50,6 +51,8 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
   const [isChatGptOpen, setIsChatGptOpen] = useState(false);
   const [chatGptResult, setChatGptResult] = useState('');
   const [bridgeMessage, setBridgeMessage] = useState('');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
   const archiveAliases = useMemo(() => archive.flatMap(titleAliases), [archive]);
   const visibleRecommendations = useMemo(() => {
     const seen = new Set<string>();
@@ -87,7 +90,14 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-sky-950/45 backdrop-blur-xl animate-fade-in">
-      <div className="bg-white/[0.92] text-slate-800 w-full max-w-3xl rounded-[1.75rem] border border-white/70 shadow-[0_30px_100px_rgba(14,116,144,0.32)] overflow-hidden flex flex-col max-h-[90vh] relative">
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="analysis-title"
+        className="bg-white/[0.92] text-slate-800 w-full max-w-3xl rounded-[1.75rem] border border-white/70 shadow-[0_30px_100px_rgba(14,116,144,0.32)] overflow-hidden flex flex-col max-h-[90vh] relative"
+      >
         {/* Decorative Background */}
         <div className="absolute inset-0 bg-[linear-gradient(rgba(14,116,144,0.06)_1px,transparent_1px)] bg-[size:100%_34px] pointer-events-none"></div>
 
@@ -95,12 +105,16 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
         <div className="p-6 border-b border-sky-100 flex justify-between items-center bg-gradient-to-r from-sky-50 to-rose-50 relative z-10">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-sky-500">Archive</p>
-            <h2 className="mt-1 text-2xl font-black text-slate-900 font-jp">鉴赏档案</h2>
+            <h2 id="analysis-title" className="mt-1 text-2xl font-black text-slate-900 font-jp">
+              鉴赏档案
+            </h2>
             <p className="text-sm text-slate-500 mt-1">
               当前状态: <span className="text-sky-700 font-bold">{rank}</span> (已阅 {count} 部)
             </p>
           </div>
           <button
+            type="button"
+            aria-label="关闭鉴赏档案"
             onClick={onClose}
             className="text-slate-400 hover:text-slate-900 transition-colors bg-white/70 p-2 rounded-full hover:bg-white"
           >
