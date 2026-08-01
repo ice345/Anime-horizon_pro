@@ -4,7 +4,8 @@ import { ArchivePage } from './components/home/ArchivePage';
 import { DecorativeBackground } from './components/home/DecorativeBackground';
 import { SiteHeader } from './components/home/SiteHeader';
 import { YearNavigation } from './components/home/YearNavigation';
-import { clearAnimeCache, fetchAnimeBySeason } from './services/anilistService';
+import { clearAnimeCache } from './services/anilistService';
+import { getCanonicalPath, getPathForRoute, getRouteFromPath, AppRoute } from './services/router';
 import {
   analyzeAnimeTaste,
   buildTasteAnalysisPrompt,
@@ -13,7 +14,15 @@ import {
   TasteAnalysisResult,
 } from './services/geminiService';
 import { buildTasteProfile } from './services/tasteProfile';
-import { Anime, OtakuRank, Season, SEASON_ORDER, UserAnimeReaction, UserAnimeStatus } from './types';
+import { Anime, OtakuRank, UserAnimeReaction, UserAnimeStatus } from './types';
+import { createBackup, NormalizedBackup, parseAndMigrateBackup } from './features/backup/backupSchema';
+import { normalizeAnimeRecord } from './shared/schemas/anime';
+import {
+  clearArchiveState,
+  loadArchiveState,
+  saveArchiveState,
+  subscribeToArchiveStorage,
+} from './shared/storage/archiveStorage';
 
 const AnalysisModal = lazy(() =>
   import('./components/AnalysisModal').then(({ AnalysisModal: Component }) => ({ default: Component }))
@@ -57,14 +66,6 @@ const MAX_LOOKAHEAD = 1;
 const DEFAULT_START_YEAR = 2000;
 const DEFAULT_END_YEAR = CURRENT_REAL_YEAR + MAX_LOOKAHEAD;
 
-const getCurrentSeason = (): Season => {
-  const month = new Date().getMonth() + 1;
-  if (month <= 3) return 'WINTER';
-  if (month <= 6) return 'SPRING';
-  if (month <= 9) return 'SUMMER';
-  return 'FALL';
-};
-
 const buildYears = (start: number, end: number) => {
   const safeStart = Math.max(DEFAULT_START_YEAR, Math.min(start, DEFAULT_END_YEAR));
   const safeEnd = Math.max(safeStart, Math.min(end, DEFAULT_END_YEAR));
@@ -77,12 +78,15 @@ const normalizeUserStatus = (status?: UserAnimeStatus): UserAnimeStatus =>
 const normalizeUserReaction = (reaction?: UserAnimeReaction): UserAnimeReaction =>
   reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL';
 
-const normalizeArchiveAnime = (anime: Anime): Anime => ({
-  ...anime,
-  userStatus: normalizeUserStatus(anime.userStatus),
-  userReaction: normalizeUserReaction(anime.userReaction),
-  userNote: typeof anime.userNote === 'string' ? anime.userNote.slice(0, 280) : undefined,
-});
+const normalizeArchiveAnime = (anime: Anime): Anime =>
+  normalizeAnimeRecord({
+    ...anime,
+    userStatus: normalizeUserStatus(anime.userStatus),
+    userReaction: normalizeUserReaction(anime.userReaction),
+    userNote: typeof anime.userNote === 'string' ? anime.userNote.slice(0, 280) : undefined,
+  });
+
+const MAX_JSON_BACKUP_BYTES = 5 * 1024 * 1024;
 
 export default function App() {
   const loadSavedYearRange = () => {
@@ -99,21 +103,25 @@ export default function App() {
     }
   };
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(new Map<string, Anime>());
-  const [archiveReady, setArchiveReady] = useState(false);
-  const [route, setRoute] = useState<'guide' | 'record'>(() =>
-    window.location.pathname === '/archive' ? 'record' : 'guide'
+  const [initialArchiveState] = useState<ReturnType<typeof loadArchiveState>>(() => loadArchiveState());
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set(initialArchiveState.selectedIds));
+  const [selectedAnimeDetails, setSelectedAnimeDetails] = useState<Map<string, Anime>>(
+    () => new Map(initialArchiveState.selectedAnimeDetails)
   );
+  const archiveStorageSyncRef = useRef(false);
+  const [route, setRoute] = useState<AppRoute>(() => {
+    const nextRoute = getRouteFromPath(window.location.pathname);
+    const canonicalPath = getPathForRoute(nextRoute);
+    if (window.location.pathname !== canonicalPath) window.history.replaceState({}, '', canonicalPath);
+    return nextRoute;
+  });
   const [yearRange, setYearRange] = useState<{ start: number; end: number }>(loadSavedYearRange);
   const years = useMemo(() => buildYears(yearRange.start, yearRange.end), [yearRange]);
   const [activeYear, setActiveYear] = useState(() =>
     Math.min(DEFAULT_END_YEAR, Math.max(DEFAULT_START_YEAR, CURRENT_REAL_YEAR))
   );
   const [animeList, setAnimeList] = useState<Anime[]>([]);
-  const [loadedSeasons, setLoadedSeasons] = useState<Set<string>>(new Set());
-  const [loadingSeasons, setLoadingSeasons] = useState<Set<string>>(new Set());
-  const requestVersionRef = useRef(0);
+  const [catalogueReloadKey, setCatalogueReloadKey] = useState(0);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSqlModalOpen, setIsSqlModalOpen] = useState(false);
@@ -130,42 +138,41 @@ export default function App() {
   const [analysisData, setAnalysisData] = useState<TasteAnalysisResult | null>(null);
   const [quickTasteProfile, setQuickTasteProfile] = useState<{ inputs: string[]; rank: OtakuRank } | null>(null);
   const [itemsPerSeason, setItemsPerSeason] = useState(20);
+  const [feedback, setFeedback] = useState('');
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('anime-horizon-selected-v3');
-      const savedDetails = localStorage.getItem('anime-horizon-details-v3');
-      if (saved) setSelectedIds(new Set(JSON.parse(saved)));
-      if (savedDetails) {
-        const details = JSON.parse(savedDetails) as Anime[];
-        setSelectedAnimeDetails(new Map(details.map((anime) => [String(anime.id), normalizeArchiveAnime(anime)])));
-      }
-    } catch (error) {
-      console.warn('Failed to restore local archive', error);
-    } finally {
-      setArchiveReady(true);
-    }
+    return subscribeToArchiveStorage((state) => {
+      archiveStorageSyncRef.current = true;
+      setSelectedIds(state.selectedIds);
+      setSelectedAnimeDetails(state.selectedAnimeDetails);
+    });
   }, []);
 
   useEffect(() => {
-    if (!archiveReady) return;
-    localStorage.setItem('anime-horizon-selected-v3', JSON.stringify(Array.from(selectedIds)));
-    localStorage.setItem('anime-horizon-details-v3', JSON.stringify(Array.from(selectedAnimeDetails.values())));
-  }, [archiveReady, selectedIds, selectedAnimeDetails]);
+    if (archiveStorageSyncRef.current) {
+      archiveStorageSyncRef.current = false;
+      return;
+    }
+    try {
+      saveArchiveState({ selectedIds, selectedAnimeDetails });
+    } catch {
+      setFeedback('本地年鉴保存失败，可能是浏览器存储空间不足。请先导出 JSON 备份。');
+    }
+  }, [selectedIds, selectedAnimeDetails]);
 
   useEffect(() => {
     localStorage.setItem('anime-horizon-year-range', JSON.stringify(yearRange));
     if (route === 'guide' && (activeYear < yearRange.start || activeYear > yearRange.end)) setActiveYear(yearRange.end);
   }, [activeYear, route, yearRange]);
 
-  const navigate = (nextRoute: 'guide' | 'record') => {
+  const navigate = (nextRoute: AppRoute) => {
     if (nextRoute === 'record' && selectedAnimeDetails.size) {
       const newestArchiveYear = Math.max(
         ...Array.from<Anime>(selectedAnimeDetails.values()).map((anime) => anime.seasonYear || 0)
       );
       if (newestArchiveYear) setActiveYear(newestArchiveYear);
     }
-    window.history.pushState({}, '', nextRoute === 'record' ? '/archive' : '/');
+    window.history.pushState({}, '', getPathForRoute(nextRoute));
     setRoute(nextRoute);
   };
 
@@ -188,42 +195,14 @@ export default function App() {
   }, [activeYear, archiveYears, route]);
 
   useEffect(() => {
-    const handlePopState = () => setRoute(window.location.pathname === '/archive' ? 'record' : 'guide');
+    const handlePopState = () => {
+      const canonicalPath = getCanonicalPath(window.location.pathname);
+      if (window.location.pathname !== canonicalPath) window.history.replaceState({}, '', canonicalPath);
+      setRoute(getRouteFromPath(canonicalPath));
+    };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-
-  const loadSeason = async (year: number, season: Season, limit: number, force = false) => {
-    const key = `${year}-${season}-${limit}`;
-    if (!force && (loadedSeasons.has(key) || loadingSeasons.has(key))) return;
-    const requestVersion = requestVersionRef.current;
-    setLoadingSeasons((previous) => new Set(previous).add(key));
-    try {
-      const data = await fetchAnimeBySeason(year, season, limit);
-      if (requestVersion !== requestVersionRef.current) return;
-      setAnimeList((previous) =>
-        [...previous.filter((item) => item.season !== season), ...data].sort(
-          (left, right) => SEASON_ORDER[left.season] - SEASON_ORDER[right.season]
-        )
-      );
-      setLoadedSeasons((previous) => new Set(previous).add(key));
-    } catch (error) {
-      console.error(`Failed to fetch ${year} ${season}:`, error);
-    } finally {
-      setLoadingSeasons((previous) => {
-        const next = new Set(previous);
-        next.delete(key);
-        return next;
-      });
-    }
-  };
-
-  useEffect(() => {
-    requestVersionRef.current += 1;
-    setAnimeList([]);
-    setLoadedSeasons(new Set());
-    void loadSeason(activeYear, getCurrentSeason(), itemsPerSeason);
-  }, [activeYear, itemsPerSeason]);
 
   const handleYearRangeChange = (start: number, end: number) => {
     const normalized = buildYears(start, end);
@@ -232,10 +211,8 @@ export default function App() {
 
   const handleClearCacheAndReload = () => {
     clearAnimeCache();
-    requestVersionRef.current += 1;
     setAnimeList([]);
-    setLoadedSeasons(new Set());
-    void loadSeason(activeYear, getCurrentSeason(), itemsPerSeason, true);
+    setCatalogueReloadKey((value) => value + 1);
     setIsSettingsOpen(false);
   };
 
@@ -244,19 +221,20 @@ export default function App() {
     setSelectedAnimeDetails(new Map());
     setQuickTasteProfile(null);
     setAnalysisData(null);
-    localStorage.removeItem('anime-horizon-selected-v3');
-    localStorage.removeItem('anime-horizon-details-v3');
+    try {
+      clearArchiveState();
+    } catch {
+      setFeedback('本地年鉴清除失败，请检查浏览器存储权限。');
+    }
   };
 
   const handleExportJson = () => {
-    const exportData = {
-      version: 1,
-      timestamp: new Date().toISOString(),
+    const exportData = createBackup({
       config: { itemsPerSeason, startYear: yearRange.start, endYear: yearRange.end },
       userSelection: Array.from(selectedIds),
       userDetails: Array.from(selectedAnimeDetails.values()),
-      currentViewData: animeList,
-    };
+      currentViewData: animeList.slice(0, 500),
+    });
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
@@ -266,27 +244,36 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportJson = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const json = JSON.parse(event.target?.result as string);
-        if (json.userSelection) setSelectedIds(new Set(json.userSelection));
-        if (json.userDetails)
-          setSelectedAnimeDetails(
-            new Map(json.userDetails.map((anime: Anime) => [String(anime.id), normalizeArchiveAnime(anime)]))
-          );
-        if (json.config?.itemsPerSeason) setItemsPerSeason(json.config.itemsPerSeason);
-        if (json.config?.startYear && json.config?.endYear)
-          handleYearRangeChange(json.config.startYear, json.config.endYear);
-        if (json.currentViewData) setAnimeList(json.currentViewData);
-        setIsSettingsOpen(false);
-        window.alert('数据加载成功！');
-      } catch {
-        window.alert('文件格式错误');
+  const handleImportJson = (file: File): Promise<NormalizedBackup> =>
+    new Promise((resolve, reject) => {
+      if (file.size > MAX_JSON_BACKUP_BYTES) {
+        reject(new Error('JSON 备份超过 5 MB'));
+        return;
       }
-    };
-    reader.readAsText(file);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const raw: unknown = JSON.parse(String(event.target?.result || ''));
+          resolve(parseAndMigrateBackup(raw));
+        } catch (error) {
+          reject(error instanceof Error ? error : new Error('备份格式错误'));
+        }
+      };
+      reader.onerror = () => reject(new Error('文件读取失败'));
+      reader.readAsText(file);
+    });
+
+  const handleApplyJsonBackup = (backup: NormalizedBackup) => {
+    setSelectedIds(new Set(backup.userSelection));
+    setSelectedAnimeDetails(
+      new Map(backup.userDetails.map((anime) => [String(anime.id), normalizeArchiveAnime(anime)]))
+    );
+    if (backup.config.itemsPerSeason) setItemsPerSeason(backup.config.itemsPerSeason);
+    if (backup.config.startYear && backup.config.endYear)
+      handleYearRangeChange(backup.config.startYear, backup.config.endYear);
+    if (backup.currentViewData.length) setAnimeList(backup.currentViewData);
+    setIsSettingsOpen(false);
+    setFeedback(`数据加载成功，已恢复 ${backup.userDetails.length} 部作品。`);
   };
 
   const handleImportArchiveSql = (anime: Anime[]) => {
@@ -442,6 +429,9 @@ export default function App() {
           onToggle={toggleAnime}
           onOpenArchive={() => navigate('record')}
           onAnalyze={() => void handleAnalyze()}
+          onAnimeLoaded={setAnimeList}
+          onLoadError={setFeedback}
+          reloadKey={catalogueReloadKey}
         />
       ) : (
         <ArchivePage
@@ -519,6 +509,7 @@ export default function App() {
             onYearRangeChange={handleYearRangeChange}
             onExportJson={handleExportJson}
             onImportJson={handleImportJson}
+            onConfirmImportJson={handleApplyJsonBackup}
             onClearCache={handleClearCacheAndReload}
             onClearSelection={handleClearSelection}
           />
@@ -554,6 +545,23 @@ export default function App() {
           />
         )}
       </Suspense>
+
+      {feedback && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-[100] flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 border border-yearbook-line bg-white px-4 py-3 text-sm text-yearbook-ink shadow-[var(--ah-shadow-soft)]"
+        >
+          <span>{feedback}</span>
+          <button
+            type="button"
+            className="shrink-0 font-medium text-yearbook-sky hover:text-yearbook-ink"
+            onClick={() => setFeedback('')}
+          >
+            知道了
+          </button>
+        </div>
+      )}
     </div>
   );
 }

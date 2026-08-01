@@ -415,6 +415,11 @@ const serveStatic = (req, res) => {
     })
   );
 
+  if (req.method === 'HEAD') {
+    res.end();
+    return;
+  }
+
   const stream = createReadStream(result.filePath);
   stream.on('error', (error) => {
     console.error(`[static] stream failed: ${error?.code || 'unknown error'}`);

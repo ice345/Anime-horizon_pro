@@ -19,6 +19,9 @@ interface GuidePageProps {
   onToggle: (id: string, anime: Anime) => void;
   onOpenArchive: () => void;
   onAnalyze: () => void;
+  onAnimeLoaded: (anime: Anime[]) => void;
+  onLoadError: (message: string) => void;
+  reloadKey: number;
 }
 
 const getCurrentSeason = (): Season => {
@@ -49,6 +52,9 @@ export const GuidePage: React.FC<GuidePageProps> = ({
   onToggle,
   onOpenArchive,
   onAnalyze,
+  onAnimeLoaded,
+  onLoadError,
+  reloadKey,
 }) => {
   const [season, setSeason] = useState<Season>(getCurrentSeason());
   const [anime, setAnime] = useState<Anime[]>([]);
@@ -59,21 +65,27 @@ export const GuidePage: React.FC<GuidePageProps> = ({
   const [view, setView] = useState<'grid' | 'list'>('grid');
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setIsLoading(true);
     setAnime([]);
-    fetchAnimeBySeason(year, season, itemsPerSeason)
+    onAnimeLoaded([]);
+    fetchAnimeBySeason(year, season, itemsPerSeason, controller.signal)
       .then((data) => {
-        if (!cancelled) setAnime(data);
+        setAnime(data);
+        onAnimeLoaded(data);
       })
-      .catch((error) => console.error('Failed to load guide:', error))
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        console.error('Failed to load guide:', error);
+        onLoadError(error instanceof Error ? error.message : '番剧目录加载失败，请稍后重试。');
+      })
       .finally(() => {
-        if (!cancelled) setIsLoading(false);
+        if (!controller.signal.aborted) setIsLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
-  }, [itemsPerSeason, season, year]);
+  }, [itemsPerSeason, onAnimeLoaded, onLoadError, reloadKey, season, year]);
 
   const genres = useMemo(() => Array.from(new Set(anime.flatMap((item) => item.genres))).sort(), [anime]);
   const seasonSelections = useMemo(

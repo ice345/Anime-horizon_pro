@@ -90,4 +90,11 @@ describe('AI proxy boundary', () => {
     const upstreamBody = JSON.parse(upstreamCalls.at(-1).init.body);
     expect(upstreamBody.model).toBe('deepseek-v4-flash');
   });
+
+  it('serves HEAD requests without a response body', async () => {
+    const response = await request('/', { method: 'HEAD' });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toBe('');
+  });
 });
