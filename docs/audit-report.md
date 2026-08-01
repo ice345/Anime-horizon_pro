@@ -10,6 +10,8 @@ Anime Horizon 是一个以 AniList 为外部目录、以浏览器本地数据为
 
 本报告是 Phase 0 的事实基线，不把计划中的改造写成已经完成的能力。当前不应宣称项目已经达到生产级。建议先完成 P0 安全与质量门禁，再进行数据边界和状态架构迁移。
 
+> 说明：前半部分记录审查开始时的基线；本报告末尾的“实施状态”记录本分支后续阶段已经落地的改动和仍未闭环的风险。
+
 ### 当前基线
 
 | 检查项          | 结果             | 备注                                                                                            |
@@ -368,3 +370,19 @@ Node 静态服务器会把不存在的文件回退到 `dist/index.html`（`serve
 - SQL 备份是否必须兼容现有外部数据库；当前报告假定它只作为 Anime Horizon 的受限可移植文本。
 
 这些事项应在对应阶段以 issue 或产品决策记录确认，不应在没有证据时改变用户数据格式或删除功能。
+
+## 22. 本分支实施状态（截至 2026-08-01）
+
+已落地：
+
+- Phase 1：`typecheck`、ESLint、Prettier、Vitest、Playwright 配置、GitHub Actions、Dependabot；Render 使用 `npm ci`；AI 代理已加入 CORS、固定模型、请求/响应限制、限流、并发、超时、安全响应头和安全错误映射。
+- Phase 2：AniList/AI/备份/session/localStorage 的 Zod 边界；JSON v2 迁移、5 MB/数量限制和确认预览；SQL 固定列、5 MB/2,000 行/13 字段限制和确认预览；保留原 `v3` 本地存储键并隔离损坏条目。
+- Phase 3：AniList TTL/容量缓存、in-flight 去重、AbortSignal、非重试错误分类；目录请求 owner 收敛到 `GuidePage`，避免 App 重复预加载同一季度；新增集中式两路由规范化和未知路径回退。
+- 测试：schema、备份、存储、SQL、AniList cache/response、画像和 AI 代理测试均已加入；当前 `npm test` 的服务测试需要允许本地临时端口监听。
+
+仍未闭环：
+
+- `npm run lint` 目前 0 errors 但保留 legacy React effect、随机游戏和脚本日志 warning；应在后续专门重构后提高门禁强度。
+- Playwright E2E 配置已经存在，但本次环境的 Chromium 安装未完成，因此不把 E2E 结果宣称为通过。
+- AI 代理的限流/预算仍是单实例内存级；生产多实例和真实账单仍需要边缘层配额、供应商预算和告警。
+- `App.tsx` 尚未完全拆成 hooks/repository，路由仍是轻量 `pushState`，Modal focus trap/ESC/焦点恢复仍待 Phase 4。

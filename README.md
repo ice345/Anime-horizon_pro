@@ -1,10 +1,10 @@
-# Anime Discovery Project
+# Anime Horizon
 
 本项目是一个基于 React/Vite 的动画数据浏览应用。支持**远程实时模式**（直接请求 Anilist API）和**本地缓存模式**（离线浏览）。集成了数据同步脚本，支持批量拉取元数据与封面图片，并提供 AI 鉴赏分析与小游戏。
 
 ## 📋 前置要求
 
-- **Node.js**: 18.0 或更高版本
+- **Node.js**: 24.x LTS（本地也可使用兼容的较新 LTS）
 - **API Key**: Render 默认模式使用 DeepSeek Key；也可由访客在当前会话自行填写兼容模型的 Key。
 
 ## 🚀 快速开始
@@ -12,7 +12,7 @@
 1.  **安装依赖**
 
     ```bash
-    npm install
+    npm ci
     ```
 
 2.  **配置环境变量**
@@ -63,12 +63,19 @@
 
 本项目通过环境变量 `VITE_DATA_MODE` 区分数据源，`package.json` 中已内置相关命令。
 
-| 模式                  | 命令                 | 数据源                              | 适用场景                                                     |
-| :-------------------- | :------------------- | :---------------------------------- | :----------------------------------------------------------- |
-| **远程模式 (Remote)** | `npm run dev:remote` | **Anilist API** (实时请求)          | 开发调试 API 交互、获取最新实时数据。需联网。                |
-| **本地模式 (Local)**  | `npm run dev:local`  | **`public/data/`** (本地 JSON/图片) | 离线开发、UI 调试、避免触发 API 频率限制。需先运行同步脚本。 |
+| 模式                  | 命令                                      | 数据源                              | 适用场景                                                     |
+| :-------------------- | :---------------------------------------- | :---------------------------------- | :----------------------------------------------------------- |
+| **远程模式 (Remote)** | `npm run dev:remote`                      | **Anilist API** (实时请求)          | 开发调试 API 交互、获取最新实时数据。需联网。                |
+| **本地模式 (Local)**  | `npm run dev:local`                       | **`public/data/`** (本地 JSON/图片) | 离线开发、UI 调试、避免触发 API 频率限制。需先运行同步脚本。 |
+| **严格本地 (Strict)** | `VITE_DATA_MODE=local-strict npm run dev` | **`public/data/`**                  | 缺少本地数据时直接报错，不回退到 AniList。                   |
 
 > **提示**：在运行本地模式前，请确保已执行数据同步脚本生成了 JSON 和图片文件。
+
+提交前运行完整质量门禁：
+
+```bash
+npm run check
+```
 
 ---
 
@@ -79,7 +86,7 @@
 | 项目          | 值                                   |
 | :------------ | :----------------------------------- |
 | Service Type  | `Web Service`                        |
-| Build Command | `npm install && npm run build`       |
+| Build Command | `npm ci && npm run build`            |
 | Start Command | `npm run start`                      |
 | Environment   | `DEEPSEEK_API_KEY=你的 DeepSeek Key` |
 
@@ -102,9 +109,9 @@
 
 ## 年鉴备份与恢复
 
-“我的 - 导出年鉴数据”会生成包含作品资料、个人状态（想看、追更、已看完）、喜欢程度与短评的 SQL。可以复制 SQL，也可以直接下载 `.sql` 备份文件。需要换设备或清理浏览器数据时，在“我的 - 导入年鉴数据”粘贴 SQL 或选择该 `.sql` 文件，再点击“导入并合并”即可恢复；同一 AniList ID 会以导入数据为准更新，其余本地年鉴不会被删除。进入“我的年鉴”后，年份栏只显示实际收录过作品的年份。
+“数据设置 - 下载备份”会生成版本化 JSON，包含作品资料、个人状态（想看、追更、已看完）、喜欢程度、短评、年份配置和有限的当前导视缓存。读取 JSON 后会先解析预览，确认后才会写入本地年鉴；解析失败不会改变现有数据。
 
-“数据设置”中的 JSON 下载与读取仍保留，适合完整备份抓取数量、年份范围和当前导视数据。
+“导出年鉴数据”中的 SQL 是面向 MySQL/MariaDB 的兼容性导出格式，适合需要数据库文本的场景。导入 SQL 会先进行受限解析和预览，只接受 Anime Horizon 自己生成的固定字段，不会执行输入中的 SQL；确认后按 AniList ID 合并，其余本地作品保留。
 
 ---
 
@@ -207,3 +214,12 @@ Tailwind CSS、React 和 AI 客户端逻辑均已由 Vite 打包，不再依赖�
 ### 2. 定时任务机制
 
 `npm run data:sync:schedule` 使用的是 Node.js 的 `setInterval`。如果进程退出（如关闭终端），定时任务将停止。如需长期在后台运行，建议结合 `pm2` 或系统级 `cron` 使用。
+
+## 工程文档
+
+- [审查报告](docs/audit-report.md)：Phase 0 基线、风险分级和路线图。
+- [架构说明](docs/architecture.md)：前端、存储、目录请求和 AI 代理边界。
+- [数据模型](docs/data-model.md)：外部 DTO、本地年鉴和用户字段约束。
+- [备份格式](docs/backup-format.md)：JSON v2 迁移、SQL 受限解析和合并语义。
+- [安全要求](docs/security.md) / [AI 与隐私](docs/ai-privacy.md)：部署和数据处理边界。
+- [部署说明](docs/deployment.md) / [贡献指南](CONTRIBUTING.md)。
