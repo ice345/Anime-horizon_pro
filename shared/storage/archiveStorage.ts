@@ -1,5 +1,6 @@
 import { Anime } from '../../types';
 import { normalizeAnimeRecord } from '../schemas/anime';
+import { getDefaultArchiveStatus } from '../../services/archiveStatus';
 
 export const ARCHIVE_STORAGE_KEYS = {
   selectedIds: 'anime-horizon-selected-v3',
@@ -56,6 +57,11 @@ const parseDetails = (raw: string | null) => {
   for (const entry of value.slice(0, 2_000)) {
     try {
       const anime = normalizeAnimeRecord(entry);
+      const rawStatus =
+        typeof entry === 'object' && entry !== null ? (entry as { userStatus?: unknown }).userStatus : undefined;
+      if (rawStatus !== 'PLAN' && rawStatus !== 'WATCHING' && rawStatus !== 'COMPLETED') {
+        anime.userStatus = getDefaultArchiveStatus(anime);
+      }
       details.set(anime.id, anime);
     } catch {
       // Ignore one damaged entry and keep the rest of the local archive usable.

@@ -14,6 +14,24 @@ interface RecommendationsModalProps {
 
 const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
 
+const buildFallbackRecommendations = (fallbackAnime: Anime[], selectedIds: Set<string>, reason: string) =>
+  fallbackAnime
+    .filter((anime) => !selectedIds.has(String(anime.id)))
+    .slice()
+    .sort(
+      (left, right) =>
+        (right.averageScore || 0) - (left.averageScore || 0) || (right.popularity || 0) - (left.popularity || 0)
+    )
+    .slice(0, 9)
+    .map((anime) => ({ anime, reason }));
+
+const describeRecommendationError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : '';
+  if (/rate limit|429/i.test(message)) return 'AniList 当前限流';
+  if (/schema|graphql|api error/i.test(message)) return 'AniList 返回的数据暂时不完整';
+  return '网络连接暂时失败';
+};
+
 export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
   isOpen,
   onClose,
@@ -30,7 +48,9 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
   const archiveKey = useMemo(
     () =>
       archive
-        .map((item) => `${item.id}:${item.userReaction || 'NEUTRAL'}`)
+        .map(
+          (item) => `${item.id}:${item.userStatus || 'PLAN'}:${item.userReaction || 'NEUTRAL'}:${item.userNote || ''}`
+        )
         .sort()
         .join(','),
     [archive]
@@ -44,14 +64,10 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
       setError('');
       if (!archive.length) {
         setRecommendations(
-          fallbackAnime
-            .slice()
-            .sort((left, right) => (right.averageScore || 0) - (left.averageScore || 0))
-            .slice(0, 9)
-            .map((anime) => ({
-              anime,
-              reason: `${anime.averageScore || '暂无'}% AniList 评分 · 本季高分精选。`,
-            }))
+          buildFallbackRecommendations(fallbackAnime, selectedIds, '本季高分精选。').map(({ anime, reason }) => ({
+            anime,
+            reason: `${anime.averageScore || '暂无'}% AniList 评分 · ${reason}`,
+          }))
         );
         return;
       }
@@ -64,15 +80,13 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
           setRecommendations(result);
         } else {
           setRecommendations(
-            fallbackAnime
-              .slice(0, 9)
-              .map((anime) => ({ anime, reason: '年鉴关联数据暂时不足，先从本季高分作品开始。' }))
+            buildFallbackRecommendations(fallbackAnime, selectedIds, '年鉴关联数据暂时不足，先从本季高分作品开始。')
           );
         }
-      } catch {
+      } catch (caughtError) {
         if (!cancelled) {
-          setError('暂时无法读取关联推荐，先为你保留本季高分作品。');
-          setRecommendations(fallbackAnime.slice(0, 9).map((anime) => ({ anime, reason: '本季高分精选。' })));
+          setError(`关联推荐读取失败：${describeRecommendationError(caughtError)}，已保留本季高分作品。`);
+          setRecommendations(buildFallbackRecommendations(fallbackAnime, selectedIds, '本季高分精选。'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -82,7 +96,7 @@ export const RecommendationsModal: React.FC<RecommendationsModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [archive, archiveKey, fallbackAnime, fallbackKey, isOpen]);
+  }, [archive, archiveKey, fallbackAnime, fallbackKey, isOpen, selectedIds]);
 
   if (!isOpen) return null;
 
