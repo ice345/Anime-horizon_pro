@@ -1,5 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import http from 'node:http';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 
 process.env.DEEPSEEK_API_KEY = 'test-server-key';
 process.env.CORS_ORIGINS = 'http://allowed.example';
@@ -10,6 +13,7 @@ const upstreamCalls = [];
 const { createAppServer } = await import('../server.mjs');
 let server;
 let address;
+let staticRoot;
 
 const request = (path, options = {}) =>
   new Promise((resolve, reject) => {
@@ -43,7 +47,9 @@ beforeAll(async () => {
       headers: { 'content-type': 'application/json' },
     });
   };
-  server = createAppServer();
+  staticRoot = await mkdtemp(join(tmpdir(), 'anime-horizon-server-'));
+  await writeFile(join(staticRoot, 'index.html'), '<!doctype html><html></html>');
+  server = createAppServer({ staticRoot });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   address = server.address();
 });
@@ -51,6 +57,7 @@ beforeAll(async () => {
 afterAll(async () => {
   globalThis.fetch = originalFetch;
   await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+  await rm(staticRoot, { recursive: true, force: true });
 });
 
 describe('AI proxy boundary', () => {

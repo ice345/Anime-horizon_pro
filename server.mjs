@@ -19,7 +19,6 @@ const moduleLocation = (() => {
 
 const __dirname = moduleLocation.directory;
 const distDir = join(__dirname, 'dist');
-const distRoot = resolve(distDir);
 const port = Number(process.env.PORT || 3000);
 const isProduction = process.env.NODE_ENV === 'production';
 
@@ -402,7 +401,7 @@ const getCacheControl = (requestPath, ext) => {
   return 'public, max-age=3600, must-revalidate';
 };
 
-const getStaticFile = (requestPath) => {
+const getStaticFile = (requestPath, staticRoot) => {
   let decodedPath;
   try {
     decodedPath = decodeURIComponent(requestPath);
@@ -410,21 +409,24 @@ const getStaticFile = (requestPath) => {
     return { error: 'INVALID_PATH' };
   }
 
+  const resolvedStaticRoot = resolve(staticRoot);
   const relativePath = normalize(decodedPath).replace(/^[/\\]+/, '');
-  const candidate = resolve(distDir, relativePath || 'index.html');
-  if (!candidate.startsWith(`${distRoot}/`) && candidate !== distRoot) return { error: 'INVALID_PATH' };
+  const candidate = resolve(resolvedStaticRoot, relativePath || 'index.html');
+  if (!candidate.startsWith(`${resolvedStaticRoot}/`) && candidate !== resolvedStaticRoot) {
+    return { error: 'INVALID_PATH' };
+  }
   if (fileExists(candidate)) return { filePath: candidate, requestPath: decodedPath };
 
   const requestedExt = extname(decodedPath);
   if (requestedExt || decodedPath.startsWith('/data/')) return { error: 'NOT_FOUND' };
 
-  const indexPath = join(distDir, 'index.html');
+  const indexPath = join(resolvedStaticRoot, 'index.html');
   return fileExists(indexPath) ? { filePath: indexPath, requestPath: '/index.html' } : { error: 'NOT_FOUND' };
 };
 
-const serveStatic = (req, res) => {
+const serveStatic = (req, res, staticRoot) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  const result = getStaticFile(url.pathname);
+  const result = getStaticFile(url.pathname, staticRoot);
   if (result.error === 'INVALID_PATH') {
     sendError(req, res, 400, 'INVALID_PATH', 'Invalid path.');
     return;
@@ -457,7 +459,7 @@ const serveStatic = (req, res) => {
   stream.pipe(res);
 };
 
-export const createAppServer = () =>
+export const createAppServer = ({ staticRoot = distDir } = {}) =>
   createServer(async (req, res) => {
     try {
       const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -469,7 +471,7 @@ export const createAppServer = () =>
         sendError(req, res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
         return;
       }
-      serveStatic(req, res);
+      serveStatic(req, res, staticRoot);
     } catch (error) {
       console.error('[server] request failed', error?.name || 'unknown error');
       if (!res.headersSent) sendError(req, res, 500, 'INTERNAL_ERROR', 'Internal server error.');
