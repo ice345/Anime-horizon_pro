@@ -31,10 +31,10 @@ const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepseekBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions';
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
 const configuredCorsOrigins = process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN ?? '';
-const maxBodyBytes = readPositiveInteger(process.env.AI_MAX_BODY_BYTES, 32_768);
-const maxPromptChars = readPositiveInteger(process.env.AI_MAX_PROMPT_CHARS, 16_000);
+const maxBodyBytes = readPositiveInteger(process.env.AI_MAX_BODY_BYTES, 128 * 1024);
+const maxPromptChars = readPositiveInteger(process.env.AI_MAX_PROMPT_CHARS, 60_000);
 const maxUpstreamResponseBytes = readPositiveInteger(process.env.AI_MAX_RESPONSE_BYTES, 512_000);
-const upstreamTimeoutMs = readPositiveInteger(process.env.AI_TIMEOUT_MS, 15_000);
+const upstreamTimeoutMs = readPositiveInteger(process.env.AI_TIMEOUT_MS, 45_000);
 const rateLimitWindowMs = 60_000;
 const rateLimitMax = readPositiveInteger(process.env.AI_RATE_LIMIT_PER_MINUTE, 10);
 const globalRateLimitMax = readPositiveInteger(process.env.AI_GLOBAL_RATE_LIMIT_PER_MINUTE, rateLimitMax * 10);
@@ -327,6 +327,7 @@ const handleDeepSeek = async (req, res) => {
         body: JSON.stringify({
           model: [...allowedModels][0],
           messages: [{ role: 'user', content: prompt }],
+          max_tokens: 10_000,
           response_format: { type: 'json_object' },
         }),
         signal: controller.signal,
@@ -351,7 +352,15 @@ const handleDeepSeek = async (req, res) => {
         return;
       }
       console.warn(`[AI proxy] upstream responded with ${upstream.status}`);
-      sendError(req, res, 502, 'AI_UPSTREAM_ERROR', 'AI service returned an error.');
+      const upstreamErrorCode =
+        upstream.status === 401 || upstream.status === 403
+          ? 'AI_UPSTREAM_AUTH'
+          : upstream.status === 402
+            ? 'AI_UPSTREAM_BALANCE'
+            : upstream.status === 400 || upstream.status === 404 || upstream.status === 422
+              ? 'AI_UPSTREAM_INVALID_REQUEST'
+              : 'AI_UPSTREAM_ERROR';
+      sendError(req, res, 502, upstreamErrorCode, 'AI service returned an error.');
       return;
     }
 

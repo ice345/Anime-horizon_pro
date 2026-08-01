@@ -31,7 +31,7 @@ CORS_ORIGINS=https://app.example.com
 
 ## AI 代理限制
 
-应用内默认限制：请求体 32 KB、Prompt 16,000 字符、上游响应 512 KB、15 秒超时、每 IP 每分钟 10 次、共享全局每分钟 100 次、共享全局每日 10,000 次、单实例并发 2。多实例生产环境配置 `AI_QUOTA_REDIS_URL` 与 `AI_QUOTA_REDIS_TOKEN`，使分钟/日配额跨实例共享；共享配额不可用时默认返回 503。未配置 Redis 时才回退到单实例内存窗口。
+应用内默认限制：请求体 128 KB、Prompt 60,000 字符、上游响应 512 KB、45 秒超时、每 IP 每分钟 10 次、共享全局每分钟 100 次、共享全局每日 10,000 次、单实例并发 2。这样完整年鉴索引可以进入自动分析；Prompt 仍受固定上限保护。多实例生产环境配置 `AI_QUOTA_REDIS_URL` 与 `AI_QUOTA_REDIS_TOKEN`，使分钟/日配额跨实例共享；共享配额不可用时默认返回 503。未配置 Redis 时才回退到单实例内存窗口。
 
 可复现的浏览器 E2E 运行时由 `npm run e2e:install` 安装 Playwright Chromium 与 headless shell；CI 在 `npm run test:e2e` 前使用同一浏览器列表并额外安装 Linux 系统依赖。
 
