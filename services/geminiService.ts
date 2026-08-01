@@ -1,4 +1,18 @@
 import { Anime, UserAnimeReaction, UserAnimeStatus } from '../types';
+import {
+  chatCompletionResponseSchema,
+  EmojiGameChallenge,
+  emojiGameChallengeSchema,
+  GameCharacter,
+  gameCharacterSchema,
+  gameWinResponseSchema,
+  normalizedTasteAnalysisSchema,
+  oracleResponseSchema,
+  sessionAIConfigSchema,
+  tasteAnalysisPayloadSchema,
+  TasteAnalysisResult,
+  SessionAIConfig,
+} from '../shared/schemas/ai';
 
 const DEEPSEEK_MODEL = 'deepseek-v4-flash';
 const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
@@ -8,38 +22,26 @@ const DEEPSEEK_PROXY_URL = env.VITE_DEEPSEEK_PROXY_URL || '/api/deepseek/chat';
 const SESSION_AI_CONFIG_KEY = 'anime-horizon-session-ai-config';
 const LEGACY_SESSION_DEEPSEEK_KEY = 'anime-horizon-session-deepseek-key';
 
-export type SessionAIProvider = 'DEEPSEEK' | 'OPENAI_COMPATIBLE';
-
-export interface SessionAIConfig {
-  provider: SessionAIProvider;
-  apiKey: string;
-  endpoint: string;
-  model: string;
-}
-
-const isSessionAIProvider = (value: unknown): value is SessionAIProvider =>
-  value === 'DEEPSEEK' || value === 'OPENAI_COMPATIBLE';
+export type { SessionAIConfig, SessionAIProvider, TasteAnalysisResult } from '../shared/schemas/ai';
 
 export const getSessionAIConfig = (): SessionAIConfig | null => {
   if (typeof window === 'undefined') return null;
   try {
     const raw = window.sessionStorage.getItem(SESSION_AI_CONFIG_KEY);
     if (raw) {
-      const config = JSON.parse(raw);
-      if (isSessionAIProvider(config?.provider) && config?.apiKey && config?.endpoint && config?.model) {
-        return {
-          provider: config.provider,
-          apiKey: String(config.apiKey).trim(),
-          endpoint: String(config.endpoint).trim(),
-          model: String(config.model).trim(),
-        };
-      }
+      const parsed = sessionAIConfigSchema.safeParse(JSON.parse(raw));
+      if (parsed.success) return parsed.data;
     }
 
     const legacyKey = window.sessionStorage.getItem(LEGACY_SESSION_DEEPSEEK_KEY)?.trim();
-    return legacyKey
-      ? { provider: 'DEEPSEEK', apiKey: legacyKey, endpoint: DEEPSEEK_BASE_URL, model: DEEPSEEK_MODEL }
-      : null;
+    if (!legacyKey) return null;
+    const parsed = sessionAIConfigSchema.safeParse({
+      provider: 'DEEPSEEK',
+      apiKey: legacyKey,
+      endpoint: DEEPSEEK_BASE_URL,
+      model: DEEPSEEK_MODEL,
+    });
+    return parsed.success ? parsed.data : null;
   } catch {
     return null;
   }
@@ -47,15 +49,8 @@ export const getSessionAIConfig = (): SessionAIConfig | null => {
 
 export const setSessionAIConfig = (config: SessionAIConfig) => {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(
-    SESSION_AI_CONFIG_KEY,
-    JSON.stringify({
-      provider: config.provider,
-      apiKey: config.apiKey.trim(),
-      endpoint: config.endpoint.trim(),
-      model: config.model.trim(),
-    })
-  );
+  const normalized = sessionAIConfigSchema.parse(config);
+  window.sessionStorage.setItem(SESSION_AI_CONFIG_KEY, JSON.stringify(normalized));
   window.sessionStorage.removeItem(LEGACY_SESSION_DEEPSEEK_KEY);
 };
 
@@ -69,21 +64,14 @@ export const isUsingSessionAIConfig = () => Boolean(getSessionAIConfig());
 
 // Simple in-memory recency buckets to reduce repetition
 const recentEmojiTitles: string[] = [];
+export const MAX_TASTE_PROMPT_ENTRIES = 32;
+const clampPromptText = (value: string, max: number) => value.slice(0, max);
 const rememberRecent = (bucket: string[], value: string, max = 6) => {
   if (!value) return;
   if (bucket.includes(value)) return;
   bucket.unshift(value);
   if (bucket.length > max) bucket.pop();
 };
-
-export interface TasteAnalysisResult {
-  tags: string[];
-  roast: string;
-  personality: string;
-  avoid: Array<{ title: string; reason: string }>;
-  goldenEra: string;
-  recommendations: Array<{ title: string; reason: string }>;
-}
 
 const statusLabels: Record<UserAnimeStatus, string> = {
   PLAN: '想看',
@@ -104,15 +92,19 @@ const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || a
 const toPromptEntry = (anime: Anime) => {
   const status = statusLabels[anime.userStatus || 'PLAN'];
   const reaction = reactionLabels[anime.userReaction || 'NEUTRAL'];
-  const aliases = [anime.title.native, anime.title.romaji, anime.title.english].filter(Boolean).join(' / ');
-  const note = anime.userNote?.trim() ? `；短评：${anime.userNote.trim()}` : '';
-  return `- ${getTitle(anime)}（别名：${aliases}；${anime.seasonYear || '年份未知'}；${status}；${reaction}；题材：${anime.genres?.join(' / ') || '未知'}${note}）`;
+  const aliases = clampPromptText(
+    [anime.title.native, anime.title.romaji, anime.title.english].filter(Boolean).join(' / '),
+    240
+  );
+  const note = anime.userNote?.trim() ? `；短评：${clampPromptText(anime.userNote.trim(), 120)}` : '';
+  const genres = clampPromptText(anime.genres?.join(' / ') || '未知', 180);
+  return `- ${clampPromptText(getTitle(anime), 120)}（别名：${aliases}；${anime.seasonYear || '年份未知'}；${status}；${reaction}；题材：${genres}${note}）`;
 };
 
 export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string) => {
-  const entries = anime.map((item) =>
-    typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item)
-  );
+  const entries = anime
+    .slice(0, MAX_TASTE_PROMPT_ENTRIES)
+    .map((item) => (typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item)));
   return `
     你现在不是在写文章，而是在为程序生成结构化数据。
 
@@ -219,7 +211,7 @@ export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string
   `;
 };
 
-const parseJsonSafe = (text?: string) => {
+const parseJsonSafe = (text?: string): unknown => {
   if (!text) throw new Error('Empty response');
   try {
     return JSON.parse(text);
@@ -234,46 +226,40 @@ const parseJsonSafe = (text?: string) => {
 
 export const normalizeTasteAnalysis = (source: unknown): TasteAnalysisResult => {
   const data = typeof source === 'string' ? parseJsonSafe(source) : source;
-  const safe = data || {};
+  const safe = tasteAnalysisPayloadSchema.parse(data || {});
   const fallbackText = '暂无数据';
 
-  const tags = Array.isArray(safe.tags) ? safe.tags.slice(0, 6) : [];
+  const tags = safe.tags.slice(0, 6).map((tag) => tag || '待补充');
   while (tags.length < 6) tags.push('待补充');
 
-  let recs: Array<{ title: string; reason: string }> = [];
-  if (Array.isArray(safe.recommendations)) {
-    recs = safe.recommendations.slice(0, 8).map((r: any) => ({
-      title: String(r?.title || '待补充'),
-      reason: String(r?.reason || fallbackText),
-    }));
-  }
+  const recs = safe.recommendations.slice(0, 8).map((recommendation) => ({
+    title: recommendation.title || '待补充',
+    reason: recommendation.reason || fallbackText,
+  }));
   while (recs.length < 8) {
     recs.push({ title: '待补充', reason: fallbackText });
   }
 
-  let avoidList: Array<{ title: string; reason: string }> = [];
-  if (Array.isArray(safe.avoid)) {
-    avoidList = safe.avoid.slice(0, 3).map((a: any) => ({
-      title: String(a?.title || '待补充'),
-      reason: String(a?.reason || fallbackText),
-    }));
-  } else if (safe.avoid) {
-    avoidList = [{ title: '待补充', reason: String(safe.avoid) }];
-  }
+  const avoidList = Array.isArray(safe.avoid)
+    ? safe.avoid.slice(0, 3).map((avoid) => ({
+        title: avoid.title || '待补充',
+        reason: avoid.reason || fallbackText,
+      }))
+    : safe.avoid
+      ? [{ title: '待补充', reason: safe.avoid }]
+      : [];
   while (avoidList.length < 3) {
     avoidList.push({ title: '待补充', reason: fallbackText });
   }
 
-  const normalized: TasteAnalysisResult = {
+  return normalizedTasteAnalysisSchema.parse({
     tags,
-    roast: String(safe.roast || safe.analysis || fallbackText),
-    personality: String(safe.personality || fallbackText),
+    roast: safe.roast || safe.analysis || fallbackText,
+    personality: safe.personality || fallbackText,
     avoid: avoidList,
-    goldenEra: String(safe.goldenEra || fallbackText),
+    goldenEra: safe.goldenEra || fallbackText,
     recommendations: recs,
-  };
-
-  return normalized;
+  });
 };
 
 const callSessionAI = async (prompt: string, config: SessionAIConfig) => {
@@ -296,14 +282,12 @@ const callSessionAI = async (prompt: string, config: SessionAIConfig) => {
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Personal AI API Error ${res.status}: ${text}`);
+      await res.arrayBuffer();
+      throw new Error(`Personal AI API Error ${res.status}`);
     }
 
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) throw new Error('Personal AI response empty');
-    return parseJsonSafe(content);
+    const data = chatCompletionResponseSchema.parse(await res.json());
+    return parseJsonSafe(data.choices[0].message.content);
   } finally {
     clearTimeout(timer);
   }
@@ -320,20 +304,16 @@ const callDeepSeekRaw = async (prompt: string) => {
     const res = await fetch(DEEPSEEK_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model: DEEPSEEK_MODEL }),
+      body: JSON.stringify({ prompt }),
     });
 
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`DeepSeek proxy error ${res.status}: ${text}`);
+      await res.arrayBuffer();
+      throw new Error(`DeepSeek proxy error ${res.status}`);
     }
 
-    const data = await res.json();
-    const content = data?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('DeepSeek proxy response empty');
-    }
-    return parseJsonSafe(content);
+    const data = chatCompletionResponseSchema.parse(await res.json());
+    return parseJsonSafe(data.choices[0].message.content);
   };
 
   return callServerProxy();
@@ -341,32 +321,14 @@ const callDeepSeekRaw = async (prompt: string) => {
 
 const callDeepSeek = async (prompt: string) => normalizeTasteAnalysis(await callDeepSeekRaw(prompt));
 
-const normalizeResult = (data: any) => {
-  if (!data) return data;
-  if (!data.roast && data.analysis) {
-    data.roast = data.analysis;
-  }
-  return data;
-};
-
 export const analyzeAnimeTaste = async (anime: Anime[] | string[], rank: string) => {
   const prompt = buildTasteAnalysisPrompt(anime, rank);
-  return normalizeResult(await callDeepSeek(prompt));
+  return callDeepSeek(prompt);
 };
 
 // --- GAME SERVICE ---
 
-export interface GameCharacter {
-  name: string;
-  source: string;
-  hint: string;
-}
-
-export interface EmojiGameChallenge {
-  title: string;
-  emojis: string;
-  hint: string;
-}
+export type { EmojiGameChallenge, GameCharacter } from '../shared/schemas/ai';
 
 const cleanGameText = (value: unknown, blockedWords: string[] = []) => {
   let text = String(value || '')
@@ -378,14 +340,14 @@ const cleanGameText = (value: unknown, blockedWords: string[] = []) => {
   return text.replace(/出自[^，。；;]{0,24}/g, '这部作品').slice(0, 32);
 };
 
-const normalizeCharacter = (value: any): GameCharacter => ({
-  name: String(value?.name || '未知角色'),
-  source: String(value?.source || '未知作品'),
-  hint: cleanGameText(value?.hint || '先从角色的行为和关系入手。', [
-    String(value?.name || ''),
-    String(value?.source || ''),
-  ]),
-});
+const normalizeCharacter = (value: unknown): GameCharacter => {
+  const parsed = gameCharacterSchema.safeParse(value);
+  if (!parsed.success) return { name: '未知角色', source: '未知作品', hint: '先从角色的行为和关系入手。' };
+  return {
+    ...parsed.data,
+    hint: cleanGameText(parsed.data.hint, [parsed.data.name, parsed.data.source]),
+  };
+};
 
 export const startAnimeGame = async (): Promise<GameCharacter> => {
   const seed = Date.now() + Math.random();
@@ -432,17 +394,21 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
   // Avoid repeated hot titles by rerolling if recently served
   for (let attempt = 0; attempt < 3; attempt++) {
     const result = await runOnce(seed);
-    if (!result?.title || !recentEmojiTitles.includes(result.title) || attempt === 2) {
-      rememberRecent(recentEmojiTitles, result?.title || '');
-      return result;
+    const parsed = emojiGameChallengeSchema.safeParse(result);
+    const title = parsed.success ? parsed.data.title : '';
+    if (!title || !recentEmojiTitles.includes(title) || attempt === 2) {
+      rememberRecent(recentEmojiTitles, title);
+      if (parsed.success) return parsed.data;
+      return { title: '未知作品', emojis: '🎬❓', hint: '先从作品的气质和题材入手。' };
     }
     seed = makeSeed();
   }
 
   // Fallback: single fetch
   const res = await runOnce(seed);
-  rememberRecent(recentEmojiTitles, res?.title || '');
-  return res;
+  const parsed = emojiGameChallengeSchema.safeParse(res);
+  rememberRecent(recentEmojiTitles, parsed.success ? parsed.data.title : '');
+  return parsed.success ? parsed.data : { title: '未知作品', emojis: '🎬❓', hint: '先从作品的气质和题材入手。' };
 };
 
 export const askGameOracle = async (
@@ -460,11 +426,13 @@ export const askGameOracle = async (
     JSON: { "answer": "YES"|"NO"|"UNKNOWN", "flavorText": "string" }
   `;
 
-  const normalizeOracle = (value: any) =>
-    ({
-      answer: value?.answer === 'YES' || value?.answer === 'NO' ? value.answer : 'UNKNOWN',
-      flavorText: cleanGameText(value?.flavorText || '信号稳定，但答案仍在雾中。', [secret.name, secret.source]),
-    }) as { answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string };
+  const normalizeOracle = (value: unknown) => {
+    const parsed = oracleResponseSchema.parse(value);
+    return {
+      answer: parsed.answer,
+      flavorText: cleanGameText(parsed.flavorText, [secret.name, secret.source]),
+    };
+  };
 
   try {
     return normalizeOracle(await callDeepSeekRaw(prompt));
@@ -486,7 +454,7 @@ export const checkGameWin = async (secret: GameCharacter | EmojiGameChallenge, u
 
   try {
     const res = await callDeepSeekRaw(prompt);
-    return res.correct === true;
+    return gameWinResponseSchema.safeParse(res).success && gameWinResponseSchema.parse(res).correct;
   } catch {
     return false;
   }

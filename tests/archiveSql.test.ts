@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateArchiveSql, parseArchiveSql } from '../services/archiveSql';
+import { generateArchiveSql, MAX_SQL_IMPORT_BYTES, parseArchiveSql } from '../services/archiveSql';
 import { Anime } from '../types';
 
 const sourceAnime: Anime = {
@@ -41,5 +41,23 @@ describe('archive SQL backup', () => {
     const sql = generateArchiveSql([sourceAnime, { ...sourceAnime, userNote: 'second row' }]);
 
     expect(parseArchiveSql(sql)).toHaveLength(1);
+  });
+
+  it('rejects unsupported insert columns and oversized input before parsing rows', () => {
+    const sql = generateArchiveSql([sourceAnime]).replace(
+      '`anilist_id`, `title_native`',
+      '`anilist_id`, `unsafe_column`'
+    );
+
+    expect(() => parseArchiveSql(sql)).toThrow('字段');
+    expect(() => parseArchiveSql(`-- \`anime_archive\`\n${'x'.repeat(MAX_SQL_IMPORT_BYTES + 1)}`)).toThrow('超过 5 MB');
+  });
+
+  it('caps the number of imported rows', () => {
+    const sql = generateArchiveSql(
+      Array.from({ length: 2_001 }, (_, index) => ({ ...sourceAnime, id: String(index + 1) }))
+    );
+
+    expect(() => parseArchiveSql(sql)).toThrow('行数');
   });
 });

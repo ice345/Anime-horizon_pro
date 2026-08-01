@@ -55,10 +55,14 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
       return;
     }
 
-    setSessionAIConfig({ provider, apiKey, endpoint, model });
-    setApiKey('');
-    setActiveProvider(provider);
-    setMessage(`已启用${providerLabel[provider]}：仅在当前浏览器会话内有效。`);
+    try {
+      setSessionAIConfig({ provider, apiKey, endpoint, model });
+      setApiKey('');
+      setActiveProvider(provider);
+      setMessage(`已启用${providerLabel[provider]}：仅在当前浏览器会话内有效。`);
+    } catch {
+      setMessage('配置不合法：接口地址必须使用 HTTPS（本机开发可使用 HTTP），Key 和模型名也不能为空。');
+    }
   };
 
   const returnToDefault = () => {

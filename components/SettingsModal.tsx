@@ -1,4 +1,5 @@
-import React, { useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { NormalizedBackup } from '../features/backup/backupSchema';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -11,7 +12,8 @@ interface SettingsModalProps {
   maxYear: number;
   onYearRangeChange: (start: number, end: number) => void;
   onExportJson: () => void;
-  onImportJson: (file: File) => void;
+  onImportJson: (file: File) => Promise<NormalizedBackup>;
+  onConfirmImportJson: (backup: NormalizedBackup) => void;
   onClearCache: () => void;
   onClearSelection: () => void;
 }
@@ -28,17 +30,45 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onYearRangeChange,
   onExportJson,
   onImportJson,
+  onConfirmImportJson,
   onClearCache,
   onClearSelection,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [jsonPreview, setJsonPreview] = useState<NormalizedBackup | null>(null);
+  const [jsonMessage, setJsonMessage] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) {
+      setJsonPreview(null);
+      setJsonMessage('');
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      onImportJson(e.target.files[0]);
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setJsonPreview(null);
+    setJsonMessage('正在解析备份……');
+    try {
+      const backup = await onImportJson(file);
+      setJsonPreview(backup);
+      setJsonMessage(
+        `预览成功：${backup.userDetails.length} 部年鉴作品，${backup.currentViewData.length} 条导视缓存。`
+      );
+    } catch (error) {
+      setJsonMessage(error instanceof Error ? `解析失败：${error.message}` : '解析失败：备份格式错误。');
     }
+  };
+
+  const handleConfirmJsonImport = () => {
+    if (!jsonPreview) return;
+    onConfirmImportJson(jsonPreview);
+    setJsonPreview(null);
+    setJsonMessage('');
   };
 
   const clampYear = (value: number) => Math.min(maxYear, Math.max(minYear, value));
@@ -150,6 +180,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             <h3 className="text-sm font-bold text-slate-700 flex items-center gap-2">本地数据归档 (JSON)</h3>
             <div className="grid grid-cols-2 gap-3">
               <button
+                type="button"
                 onClick={onExportJson}
                 className="flex flex-col items-center justify-center p-4 rounded-xl bg-sky-50/70 hover:bg-sky-50 border border-sky-100 hover:border-sky-300 transition-all group"
               >
@@ -159,6 +190,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
 
               <button
+                type="button"
                 onClick={() => fileInputRef.current?.click()}
                 className="flex flex-col items-center justify-center p-4 rounded-xl bg-rose-50/70 hover:bg-rose-50 border border-rose-100 hover:border-rose-300 transition-all group"
               >
@@ -166,8 +198,31 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 <span className="text-sm font-bold text-slate-700 group-hover:text-rose-600">读取档案</span>
                 <span className="text-[10px] text-slate-400 mt-1">加载本地 JSON</span>
               </button>
-              <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
+              <input
+                type="file"
+                ref={fileInputRef}
+                className="hidden"
+                accept=".json,application/json"
+                onChange={(event) => void handleFileChange(event)}
+              />
             </div>
+            {jsonMessage && (
+              <p role="status" className={`text-xs ${jsonPreview ? 'text-emerald-700' : 'text-slate-500'}`}>
+                {jsonMessage}
+              </p>
+            )}
+            {jsonPreview && (
+              <div className="border border-emerald-200 bg-emerald-50/70 p-3 text-xs leading-5 text-emerald-800">
+                将恢复 {jsonPreview.userDetails.length} 部作品，并合并当前导视缓存；解析失败不会改变现有数据。
+                <button
+                  type="button"
+                  onClick={handleConfirmJsonImport}
+                  className="mt-2 block font-bold text-emerald-700 underline underline-offset-2"
+                >
+                  确认恢复这份备份
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="h-px bg-white/5 w-full"></div>
@@ -175,6 +230,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {/* 3. Actions */}
           <div className="pt-2">
             <button
+              type="button"
               onClick={onClearCache}
               className="w-full py-3 rounded-xl bg-sky-50 text-sky-700 font-bold border border-sky-100 hover:bg-sky-100 transition-all flex items-center justify-center gap-2"
             >
@@ -195,6 +251,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               刷新番剧数据（保留观看记录）
             </button>
             <button
+              type="button"
               onClick={() => {
                 if (window.confirm('确定清除全部观看记录和测评画像吗？此操作不可撤销。')) onClearSelection();
               }}
