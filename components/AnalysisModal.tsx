@@ -54,6 +54,18 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
   const dialogRef = useRef<HTMLDivElement>(null);
   useModalA11y(isOpen, onClose, dialogRef);
   const archiveAliases = useMemo(() => archive.flatMap(titleAliases), [archive]);
+  const statusCounts = useMemo(
+    () =>
+      archive.reduce(
+        (counts, item) => {
+          const status = item.userStatus || 'PLAN';
+          counts[status] += 1;
+          return counts;
+        },
+        { PLAN: 0, WATCHING: 0, COMPLETED: 0 }
+      ),
+    [archive]
+  );
   const visibleRecommendations = useMemo(() => {
     const seen = new Set<string>();
     return (data?.recommendations || [])
@@ -109,7 +121,10 @@ export const AnalysisModal: React.FC<AnalysisModalProps> = ({
               鉴赏档案
             </h2>
             <p className="text-sm text-slate-500 mt-1">
-              当前状态: <span className="text-sky-700 font-bold">{rank}</span> (已阅 {count} 部)
+              当前状态: <span className="text-sky-700 font-bold">{rank}</span> (收录 {count} 部)
+            </p>
+            <p className="mt-1 text-xs text-slate-400">
+              已看完 {statusCounts.COMPLETED} · 追更 {statusCounts.WATCHING} · 想看 {statusCounts.PLAN}
             </p>
           </div>
           <button

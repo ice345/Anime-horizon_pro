@@ -1,4 +1,4 @@
-import { Anime, UserAnimeReaction, UserAnimeStatus } from '../types';
+import { Anime } from '../types';
 import {
   chatCompletionResponseSchema,
   EmojiGameChallenge,
@@ -13,16 +13,66 @@ import {
   TasteAnalysisResult,
   SessionAIConfig,
 } from '../shared/schemas/ai';
+import { buildArchivePromptData, MAX_ARCHIVE_PROMPT_ENTRIES } from './archivePrompt';
 
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
-const DEEPSEEK_BASE_URL = 'https://api.deepseek.com/chat/completions';
-const TIMEOUT_MS = 12000;
+export const DEFAULT_DEEPSEEK_MODEL = 'deepseek-v4-flash';
+export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
+const TIMEOUT_MS = 45_000;
 const env = import.meta.env;
 const DEEPSEEK_PROXY_URL = env.VITE_DEEPSEEK_PROXY_URL || '/api/deepseek/chat';
 const SESSION_AI_CONFIG_KEY = 'anime-horizon-session-ai-config';
 const LEGACY_SESSION_DEEPSEEK_KEY = 'anime-horizon-session-deepseek-key';
 
 export type { SessionAIConfig, SessionAIProvider, TasteAnalysisResult } from '../shared/schemas/ai';
+export { MAX_ARCHIVE_PROMPT_ENTRIES as MAX_TASTE_PROMPT_ENTRIES } from './archivePrompt';
+
+type AIRequestSource = 'personal' | 'site';
+
+export class AIRequestError extends Error {
+  readonly source: AIRequestSource;
+  readonly status?: number;
+  readonly code?: string;
+
+  constructor(message: string, options: { source: AIRequestSource; status?: number; code?: string }) {
+    super(message);
+    this.name = 'AIRequestError';
+    this.source = options.source;
+    this.status = options.status;
+    this.code = options.code;
+  }
+}
+
+const readErrorCode = async (res: Response) => {
+  try {
+    const payload = (await res.json()) as { error?: unknown };
+    return typeof payload.error === 'string' ? payload.error : undefined;
+  } catch {
+    return undefined;
+  }
+};
+
+const errorSourceLabel = (source: AIRequestSource) => (source === 'personal' ? '个人模型' : '站点默认 AI');
+
+export const describeAIError = (error: unknown, source: AIRequestSource): string => {
+  const requestError = error instanceof AIRequestError ? error : undefined;
+  const status = requestError?.status;
+  const code = requestError?.code;
+
+  if (code === 'AI_NOT_CONFIGURED') return 'Render 未配置 DEEPSEEK_API_KEY，请在服务端环境变量中设置后重新部署。';
+  if (code === 'CORS_FORBIDDEN') return 'Render 拒绝了当前网页来源，请检查 CORS_ORIGINS 是否填写了前端的完整 origin。';
+  if (code === 'AI_UPSTREAM_AUTH' || status === 401 || status === 403)
+    return `${errorSourceLabel(source)}拒绝了 API Key，请确认 Key 属于当前接口且没有被撤销。`;
+  if (code === 'AI_UPSTREAM_BALANCE' || status === 402)
+    return `${errorSourceLabel(source)}余额不足或账户未开通 API 计费，请检查供应商控制台。`;
+  if (code === 'AI_UPSTREAM_INVALID_REQUEST' || status === 404 || status === 422)
+    return `${errorSourceLabel(source)}拒绝了模型或请求参数，请检查模型名与 Chat Completions 地址。`;
+  if (code === 'AI_UPSTREAM_RATE_LIMITED' || status === 429) return `${errorSourceLabel(source)}触发限流，请稍后再试。`;
+  if (code === 'AI_TIMEOUT' || (error instanceof DOMException && error.name === 'AbortError'))
+    return `${errorSourceLabel(source)}响应超时。年鉴较大时请稍后重试，或检查服务端的 AI_TIMEOUT_MS。`;
+  if (source === 'personal' && (!requestError || requestError.status === undefined))
+    return '个人模型无法连接。若 Key 和余额正常，通常是接口不允许浏览器跨域（CORS）或地址填写错误；也可以恢复站点默认服务。';
+  return '站点 AI 暂时不可用，请检查 Render 部署、Key、CORS_ORIGINS 和网络后重试。';
+};
 
 export const getSessionAIConfig = (): SessionAIConfig | null => {
   if (typeof window === 'undefined') return null;
@@ -38,8 +88,8 @@ export const getSessionAIConfig = (): SessionAIConfig | null => {
     const parsed = sessionAIConfigSchema.safeParse({
       provider: 'DEEPSEEK',
       apiKey: legacyKey,
-      endpoint: DEEPSEEK_BASE_URL,
-      model: DEEPSEEK_MODEL,
+      endpoint: DEFAULT_DEEPSEEK_ENDPOINT,
+      model: DEFAULT_DEEPSEEK_MODEL,
     });
     return parsed.success ? parsed.data : null;
   } catch {
@@ -64,8 +114,6 @@ export const isUsingSessionAIConfig = () => Boolean(getSessionAIConfig());
 
 // Simple in-memory recency buckets to reduce repetition
 const recentEmojiTitles: string[] = [];
-export const MAX_TASTE_PROMPT_ENTRIES = 32;
-const clampPromptText = (value: string, max: number) => value.slice(0, max);
 const rememberRecent = (bucket: string[], value: string, max = 6) => {
   if (!value) return;
   if (bucket.includes(value)) return;
@@ -73,141 +121,81 @@ const rememberRecent = (bucket: string[], value: string, max = 6) => {
   if (bucket.length > max) bucket.pop();
 };
 
-const statusLabels: Record<UserAnimeStatus, string> = {
-  PLAN: '想看',
-  WATCHING: '追更',
-  COMPLETED: '已看完',
-};
-
-const reactionLabels: Record<UserAnimeReaction, string> = {
-  LOVE: '非常喜欢',
-  LIKE: '喜欢',
-  NEUTRAL: '一般',
-  DISLIKE: '不太喜欢',
-  HATE: '不喜欢',
-};
-
-const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
-
-const toPromptEntry = (anime: Anime) => {
-  const status = statusLabels[anime.userStatus || 'PLAN'];
-  const reaction = reactionLabels[anime.userReaction || 'NEUTRAL'];
-  const aliases = clampPromptText(
-    [anime.title.native, anime.title.romaji, anime.title.english].filter(Boolean).join(' / '),
-    240
-  );
-  const note = anime.userNote?.trim() ? `；短评：${clampPromptText(anime.userNote.trim(), 120)}` : '';
-  const genres = clampPromptText(anime.genres?.join(' / ') || '未知', 180);
-  return `- ${clampPromptText(getTitle(anime), 120)}（别名：${aliases}；${anime.seasonYear || '年份未知'}；${status}；${reaction}；题材：${genres}${note}）`;
-};
-
 export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string) => {
-  const entries = anime
-    .slice(0, MAX_TASTE_PROMPT_ENTRIES)
-    .map((item) => (typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item)));
+  const isArchive = anime.every((item): item is Anime => typeof item !== 'string');
+  const archiveData = isArchive ? buildArchivePromptData(anime) : null;
+  const quickEntries = isArchive
+    ? []
+    : anime.slice(0, MAX_ARCHIVE_PROMPT_ENTRIES).map((item) => `- ${item}（来自快速测评，未提供状态与短评）`);
+  const indexText = archiveData?.indexText || quickEntries.join('\n') || '无';
+  const highlightText =
+    archiveData?.highlightText || '与上方快速测评输入相同；未提供可用于作品举例的状态、态度或短评。';
+  const archiveCount = archiveData?.sourceCount ?? quickEntries.length;
+  const includedCount = archiveData?.includedCount ?? quickEntries.length;
+  const statusSummary = archiveData
+    ? `已看完 ${archiveData.statusCounts.COMPLETED} 部；追更 ${archiveData.statusCounts.WATCHING} 部；想看 ${archiveData.statusCounts.PLAN} 部`
+    : '快速测评输入未提供观看状态';
+  const evidenceInstruction =
+    archiveData && archiveData.statusCounts.COMPLETED + archiveData.statusCounts.WATCHING >= 2
+      ? '深度鉴赏至少引用 2~3 部索引中状态为追更/已看完的作品。'
+      : '当前追更/已看完证据不足，不要假装用户看过作品；请明确说明样本不足，并只基于索引、题材和用户明确输入做克制推断。';
+
   return `
-    你现在不是在写文章，而是在为程序生成结构化数据。
+    你是资深、客观且懂制作与叙事的动画鉴赏者。请根据用户主动建立的年鉴，生成可靠、有证据的结构化鉴赏结果。
 
-    你的输出将被 JSON.parse 直接解析，因此：
-    - 输出必须是唯一内容
-    - 只能输出一个合法 JSON 对象
-    - 不允许任何多余字符、说明、标题、换行前缀、表情或 Markdown
-    - 如果无法满足某个分析要求，也必须返回完整 JSON，不得省略字段
+    这是一次 JSON 输出任务。最终回复只能是一个合法 JSON 对象，不能有 Markdown、解释、前后缀或额外字段。即使证据不足，也必须保留全部字段并用“暂无数据”说明，不能编造用户没有看过或评价过的细节。
 
-    角色设定：
-    你是一位资深、客观、非常懂行的老二次元动画鉴赏者（Anime Expert），具备系统性的动画审美分析能力与犀利判断。
+    用户画像等级：${rank}
+    年鉴记录：${archiveCount} 部；本次完整索引纳入：${includedCount} 部。
+    观看状态统计：${statusSummary}
 
-    输入信息：
-    - 用户年鉴（作品、状态、喜欢程度、短评均为用户主动留下的信息）：
-      ${entries.join('\n') || '无'}
-    - 用户等级：
-      ${rank}
+    【完整作品索引】
+    下面的索引用于覆盖全部作品、识别别名、排除重复推荐。每行包含作品名、别名、年份、用户状态、用户态度和题材：
+    ${indexText}
 
-    分析要求（所有内容必须体现在返回的 JSON 中，一个都不能省略）：
+    【重点证据】
+    以下记录优先包含已看完/追更、明确喜欢或不喜欢、以及写过短评的作品。深度鉴赏和人格侧写应优先从这里举例，但不要把重点样本误当成全部年鉴：
+    ${highlightText}
 
-    1. 成分标签（tags）
-    - 必须是数组
-    - 正好 6 个元素
-    - 每个元素为 2~5 个汉字
-    - 用于概括用户的二次元属性与审美取向
-    - 可以参考以下示例生成风格相近的标签：
-      京蜜, 音乐迷, 日常向, 情感派, 剧情向, 萌豚厨
-    - 不要直接盲目使用示例中的标签，必须根据用户已看作品生成标签,如果用户看的作品符合上面的标签风格，可以使用类似风格的标签，但不要重复示例中的标签
+    证据边界：
+    - “想看”只能说明愿望，不能当作用户已经看过或喜欢。
+    - “追更/已看完”才可用于观看经历；“非常喜欢/喜欢/不太喜欢/不喜欢”和短评才可用于强烈价值判断。
+    - 只引用索引中确实存在的作品名，不要虚构用户短评、剧情细节、台词或观看经历。
+    - 作品名的别名也视为已出现作品；推荐时避开完整索引中的标题、别名、续作、重制版、总集篇和同系列条目。
+    - 如果只能根据 AniList 的年份和题材做推断，请明确使用“可能/倾向于”等措辞。
 
-    2. 深度鉴赏（analysis）
-    - 输出风格必须体现“老二次元”犀利评论口吻
-    - 结合至少 2~3 部用户看过的番剧或轻小说做举例对比
-    - 分析用户口味核心逻辑：人物塑造、叙事结构、演出风格、情绪密度等
-    - 指出用户审美中的独特偏执点（作画 / 配乐 / 题材执念等）
-    - 内容要充分展开，避免一两句话带过
+    输出字段要求：
+    - tags：正好 6 个 2~5 个汉字的审美标签，必须从年鉴证据归纳，不要照抄示例。
+    - analysis：分段、具体的深度点评，${evidenceInstruction} 比较人物、叙事、演出、配乐或情绪密度，并指出审美偏执点。
+    - personality：基于真实观看与评价信号的克制侧写，至少引用 1~2 部重点证据；不要把娱乐偏好当成确定的人格诊断或现实履历。
+    - avoid：正好 3 个 {"title":"动画标题","reason":"具体避雷理由"}，理由要与用户已表现出的偏好冲突相关。
+    - goldenEra：结合年份、题材和作品定位给出审美集中年代，并说明依据。
+    - recommendations：正好 8 个不重复的 {"title":"动画标题","reason":"为什么与该用户的具体口味匹配"}，严格排除完整索引及其别名和同系列作品。
 
-    3. 现实人格侧写（personality）
-    - 同样用“老二次元”语气，段落化描述
-    - 基于观影偏好推测性格、思维方式、处事风格
-    - 结合已看作品举例说明其心理或行为倾向
-    - 可推测学习/工作取向，但必须给出逻辑依据
-
-    4. 避雷预警（avoid）
-    - 必须是数组，正好 3 个对象
-    - 每个对象包含：
-      - title：动画标题
-      - reason：原因（节奏、价值观或演出方式等）
-    - 需要点名具体作品，作为反面教材
-
-    5. 补番候选（recommendations）
-    - 必须是数组
-    - 正好 8 个对象，按推荐优先级排列
-    - 每个对象必须包含：
-      - title：动画标题
-      - reason：推荐理由
-    - 推荐作品必须严格避开用户年鉴中出现的所有标题与别名；不得推荐同一作品的续作、重制版、总集篇或电影版
-    - 8 部作品标题不得重复，也不得是同一系列的不同条目
-    - 每条推荐都必须解释“为什么该用户会吃这一套”
-
-    6. 黄金年代判定（goldenEra）
-    - 判断用户动画审美最集中的年代区间
-    - 不只是给出年份，而要结合用户观看列表的番剧分析：
-      - 这些作品的定位群体,剧情,制作水平等性质
-      - 哪些年份的作品风格或类型与用户偏好最吻合
-    - 用一句总结性判断给出结论，同时必须包含逻辑解释
-
-    语言风格要求（仅体现在字段内容中）：
-    - 中文
-    - 一针见血
-    - 专业但不说教
-    - 可轻微犀利或幽默，但禁止玩梗与夸张表达
-
-    返回格式要求（严格遵守）：
-    - 必须严格返回合法 JSON
-    - 不要包含任何 Markdown 语法
-    - 不要包含任何解释性文字
-    - 所有字段必须存在
-    - JSON 结构必须与下方完全一致
-
-    示例结构（仅示意结构，内容需重新生成）：
+    JSON 结构必须严格如下：
     {
-      "tags": ["示例一", "示例二", "示例三", "示例四", "示例五", "示例六"],
-      "analysis": "示例文本",
-      "personality": "示例文本",
+      "tags": ["标签1", "标签2", "标签3", "标签4", "标签5", "标签6"],
+      "analysis": "深度点评",
+      "personality": "克制侧写",
       "avoid": [
-        { "title": "示例X", "reason": "示例原因" },
-        { "title": "示例Y", "reason": "示例原因" },
-        { "title": "示例Z", "reason": "示例原因" }
+        { "title": "作品A", "reason": "原因" },
+        { "title": "作品B", "reason": "原因" },
+        { "title": "作品C", "reason": "原因" }
       ],
-      "goldenEra": "示例文本",
+      "goldenEra": "年代判断及依据",
       "recommendations": [
-        { "title": "示例A", "reason": "示例文本" },
-        { "title": "示例B", "reason": "示例文本" },
-        { "title": "示例C", "reason": "示例文本" },
-        { "title": "示例D", "reason": "示例文本" },
-        { "title": "示例E", "reason": "示例文本" },
-        { "title": "示例F", "reason": "示例文本" },
-        { "title": "示例G", "reason": "示例文本" },
-        { "title": "示例H", "reason": "示例文本" }
+        { "title": "作品D", "reason": "推荐理由" },
+        { "title": "作品E", "reason": "推荐理由" },
+        { "title": "作品F", "reason": "推荐理由" },
+        { "title": "作品G", "reason": "推荐理由" },
+        { "title": "作品H", "reason": "推荐理由" },
+        { "title": "作品I", "reason": "推荐理由" },
+        { "title": "作品J", "reason": "推荐理由" },
+        { "title": "作品K", "reason": "推荐理由" }
       ]
     }
-    
-    现在开始生成最终 JSON 输出。
+
+    现在只输出最终 JSON。
   `;
 };
 
@@ -282,12 +270,22 @@ const callSessionAI = async (prompt: string, config: SessionAIConfig) => {
     });
 
     if (!res.ok) {
-      await res.arrayBuffer();
-      throw new Error(`Personal AI API Error ${res.status}`);
+      const code = await readErrorCode(res);
+      throw new AIRequestError(`Personal AI API Error ${res.status}`, {
+        source: 'personal',
+        status: res.status,
+        code,
+      });
     }
 
     const data = chatCompletionResponseSchema.parse(await res.json());
     return parseJsonSafe(data.choices[0].message.content);
+  } catch (error) {
+    if (error instanceof AIRequestError) throw error;
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new AIRequestError('Personal AI request timed out', { source: 'personal', code: 'AI_TIMEOUT' });
+    }
+    throw new AIRequestError('Personal AI request could not reach the endpoint', { source: 'personal' });
   } finally {
     clearTimeout(timer);
   }
@@ -308,15 +306,27 @@ const callDeepSeekRaw = async (prompt: string) => {
     });
 
     if (!res.ok) {
-      await res.arrayBuffer();
-      throw new Error(`DeepSeek proxy error ${res.status}`);
+      const code = await readErrorCode(res);
+      throw new AIRequestError(`DeepSeek proxy error ${res.status}`, {
+        source: 'site',
+        status: res.status,
+        code,
+      });
     }
 
     const data = chatCompletionResponseSchema.parse(await res.json());
     return parseJsonSafe(data.choices[0].message.content);
   };
 
-  return callServerProxy();
+  try {
+    return await callServerProxy();
+  } catch (error) {
+    if (error instanceof AIRequestError) throw error;
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new AIRequestError('Site AI request timed out', { source: 'site', code: 'AI_TIMEOUT' });
+    }
+    throw new AIRequestError('Site AI request could not reach the proxy', { source: 'site' });
+  }
 };
 
 const callDeepSeek = async (prompt: string) => normalizeTasteAnalysis(await callDeepSeekRaw(prompt));

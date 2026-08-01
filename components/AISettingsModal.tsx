@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import {
   clearSessionAIConfig,
+  DEFAULT_DEEPSEEK_ENDPOINT,
+  DEFAULT_DEEPSEEK_MODEL,
   getSessionAIConfig,
   SessionAIProvider,
   setSessionAIConfig,
@@ -12,9 +14,6 @@ interface AISettingsModalProps {
   onClose: () => void;
 }
 
-const DEEPSEEK_ENDPOINT = 'https://api.deepseek.com/chat/completions';
-const DEEPSEEK_MODEL = 'deepseek-v4-flash';
-
 const providerLabel: Record<SessionAIProvider, string> = {
   DEEPSEEK: '个人 DeepSeek',
   OPENAI_COMPATIBLE: '个人兼容模型',
@@ -24,8 +23,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
   const [initialConfig] = useState(() => getSessionAIConfig());
   const [provider, setProvider] = useState<SessionAIProvider>(() => initialConfig?.provider || 'DEEPSEEK');
   const [apiKey, setApiKey] = useState('');
-  const [endpoint, setEndpoint] = useState(() => initialConfig?.endpoint || DEEPSEEK_ENDPOINT);
-  const [model, setModel] = useState(() => initialConfig?.model || DEEPSEEK_MODEL);
+  const [endpoint, setEndpoint] = useState(() => initialConfig?.endpoint || DEFAULT_DEEPSEEK_ENDPOINT);
+  const [model, setModel] = useState(() => initialConfig?.model || DEFAULT_DEEPSEEK_MODEL);
   const [activeProvider, setActiveProvider] = useState<SessionAIProvider | null>(() => initialConfig?.provider || null);
   const [message, setMessage] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -38,8 +37,8 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
     setProvider(nextProvider);
     setMessage('');
     if (nextProvider === 'DEEPSEEK') {
-      setEndpoint(DEEPSEEK_ENDPOINT);
-      setModel(DEEPSEEK_MODEL);
+      setEndpoint(DEFAULT_DEEPSEEK_ENDPOINT);
+      setModel(DEFAULT_DEEPSEEK_MODEL);
     }
   };
 
@@ -105,7 +104,9 @@ export const AISettingsModal: React.FC<AISettingsModalProps> = ({ isOpen, onClos
               <div>
                 <h3 className="font-medium text-yearbook-ink">当前 AI 服务</h3>
                 <p className="mt-1 text-sm text-yearbook-muted">
-                  {activeProvider ? `${providerLabel[activeProvider]}（本次会话）` : '站点默认服务（Render）'}
+                  {activeProvider
+                    ? `${providerLabel[activeProvider]}（本次会话；不会读取 Render Key）`
+                    : '站点默认服务（Render；无需填写个人 Key）'}
                 </p>
               </div>
               <span

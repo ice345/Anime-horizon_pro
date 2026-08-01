@@ -9,6 +9,7 @@ import { getCanonicalPath, getPathForRoute, getRouteFromPath, AppRoute } from '.
 import {
   analyzeAnimeTaste,
   buildTasteAnalysisPrompt,
+  describeAIError,
   isUsingSessionAIConfig,
   normalizeTasteAnalysis,
   TasteAnalysisResult,
@@ -352,10 +353,14 @@ export default function App() {
   const fullArchive = useMemo(() => Array.from(selectedAnimeDetails.values()), [selectedAnimeDetails]);
   const rank = tasteProfile.rank;
   const chatGptAnalysisPrompt = useMemo(
-    () => buildTasteAnalysisPrompt(fullArchive.slice(0, 120), rank),
-    [fullArchive, rank]
+    () =>
+      buildTasteAnalysisPrompt(
+        fullArchive.length ? fullArchive : quickTasteProfile?.inputs || [],
+        fullArchive.length ? rank : quickTasteProfile?.rank || rank
+      ),
+    [fullArchive, quickTasteProfile, rank]
   );
-  const displayedRank = quickTasteProfile?.rank || rank;
+  const displayedRank = fullArchive.length ? rank : quickTasteProfile?.rank || rank;
 
   const handleAnalyze = async (override?: { inputs: string[]; rank: OtakuRank }) => {
     const profile = override || quickTasteProfile;
@@ -367,18 +372,21 @@ export default function App() {
     if (!analysisData || override) {
       setIsAnalyzing(true);
       try {
-        const source = profile?.inputs?.length ? profile.inputs : fullArchive.slice(0, 120);
+        const source = override?.inputs?.length
+          ? override.inputs
+          : fullArchive.length
+            ? fullArchive
+            : profile?.inputs || [];
+        const analysisRank = override?.rank || (fullArchive.length ? rank : profile?.rank || rank);
         const result = await analyzeAnimeTaste(
           source.length ? source : ['(用户数据缓存已清除，仅基于数量分析)'],
-          profile?.rank || rank
+          analysisRank
         );
         setAnalysisData(result);
-      } catch {
+      } catch (error) {
         setAnalysisData(
           normalizeTasteAnalysis({
-            roast: isUsingSessionAIConfig()
-              ? '个人模型调用失败。请检查 Key、模型名、接口地址、余额或网络后再试。'
-              : 'AI 通信失败',
+            roast: describeAIError(error, isUsingSessionAIConfig() ? 'personal' : 'site'),
             personality: '未知',
             recommendations: [],
           })
