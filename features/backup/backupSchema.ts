@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Anime } from '../../types';
 import { normalizeAnimeRecord } from '../../shared/schemas/anime';
+import { getDefaultArchiveStatus } from '../../services/archiveStatus';
 
 export const CURRENT_BACKUP_VERSION = 2;
 export const MAX_BACKUP_ENTRIES = 2_000;
@@ -44,11 +45,16 @@ export interface NormalizedBackup {
   currentViewData: Anime[];
 }
 
-const normalizeEntries = (entries: unknown[], max: number) => {
+const normalizeEntries = (entries: unknown[], max: number, isArchive = false) => {
   const seen = new Set<string>();
   const normalized: Anime[] = [];
   for (const entry of entries.slice(0, max)) {
     const anime = normalizeAnimeRecord(entry);
+    const rawStatus =
+      typeof entry === 'object' && entry !== null ? (entry as { userStatus?: unknown }).userStatus : undefined;
+    if (isArchive && rawStatus !== 'PLAN' && rawStatus !== 'WATCHING' && rawStatus !== 'COMPLETED') {
+      anime.userStatus = getDefaultArchiveStatus(anime);
+    }
     if (seen.has(anime.id)) continue;
     seen.add(anime.id);
     normalized.push(anime);
@@ -62,7 +68,7 @@ export const parseAndMigrateBackup = (value: unknown): NormalizedBackup => {
     throw new Error(`不支持的备份版本：${raw.version}`);
   }
 
-  const userDetails = normalizeEntries(raw.userDetails, MAX_BACKUP_ENTRIES);
+  const userDetails = normalizeEntries(raw.userDetails, MAX_BACKUP_ENTRIES, true);
   const currentViewData = normalizeEntries(raw.currentViewData, MAX_BACKUP_VIEW_ENTRIES);
   const detailIds = userDetails.map((anime) => anime.id);
   const userSelection = Array.from(new Set([...raw.userSelection, ...detailIds]));

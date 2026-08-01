@@ -62,7 +62,9 @@ export const formatArchiveHighlight = (anime: Anime) => {
 const evidenceScore = (anime: Anime) => {
   const statusScore = { PLAN: 0, WATCHING: 2, COMPLETED: 3 }[normalizeStatus(anime.userStatus)];
   const reactionScore = normalizeReaction(anime.userReaction) === 'NEUTRAL' ? 0 : 3;
-  const noteScore = anime.userNote?.trim() ? 4 : 0;
+  // A short review is the strongest explicit signal, but status/reaction still
+  // keep unwritten entries useful when a large archive has only a few reviews.
+  const noteScore = anime.userNote?.trim() ? 8 : 0;
   return statusScore + reactionScore + noteScore;
 };
 
@@ -80,10 +82,13 @@ export const buildArchivePromptData = (anime: Anime[]) => {
     .sort((left, right) => right.score - left.score || left.index - right.index)
     .slice(0, MAX_ARCHIVE_PROMPT_HIGHLIGHTS)
     .map(({ item }) => item);
+  const reviewCount = entries.filter((item) => Boolean(item.userNote?.trim())).length;
 
   return {
     sourceCount: anime.length,
     includedCount: entries.length,
+    reviewCount,
+    highlightCount: highlights.length,
     statusCounts,
     indexText: entries.map(formatArchiveIndexEntry).join('\n') || '无',
     highlightText: highlights.map(formatArchiveHighlight).join('\n') || '无',

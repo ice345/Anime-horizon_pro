@@ -86,6 +86,16 @@ describe('AI data boundary', () => {
     expect(prompt.length).toBeLessThan(60_000);
   });
 
+  it('prioritizes reviews without requiring one for every archived title', () => {
+    const archive = [anime(1, { userNote: '重点短评' }), anime(2, { userNote: undefined, userReaction: 'NEUTRAL' })];
+    const prompt = buildTasteAnalysisPrompt(archive, '动画爱好者');
+
+    expect(prompt).toContain('其中 1 部写过短评');
+    expect(prompt).toContain('没有短评的作品仍须依据观看状态');
+    expect(prompt).toContain('重点短评');
+    expect(prompt).toContain('作品 2');
+  });
+
   it('includes the full archive context in the ChatGPT image prompt', () => {
     const archive = Array.from({ length: 80 }, (_, index) => anime(index));
     const prompt = buildPortraitImagePrompt('全站鉴赏画像', archive, buildTasteProfile(archive));

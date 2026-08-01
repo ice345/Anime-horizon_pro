@@ -135,6 +135,9 @@ export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string
   const statusSummary = archiveData
     ? `已看完 ${archiveData.statusCounts.COMPLETED} 部；追更 ${archiveData.statusCounts.WATCHING} 部；想看 ${archiveData.statusCounts.PLAN} 部`
     : '快速测评输入未提供观看状态';
+  const evidenceSummary = archiveData
+    ? `其中 ${archiveData.reviewCount} 部写过短评，本次选取 ${archiveData.highlightCount} 部作为重点证据`
+    : '快速测评输入未提供短评';
   const evidenceInstruction =
     archiveData && archiveData.statusCounts.COMPLETED + archiveData.statusCounts.WATCHING >= 2
       ? '深度鉴赏至少引用 2~3 部索引中状态为追更/已看完的作品。'
@@ -148,6 +151,7 @@ export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string
     用户画像等级：${rank}
     年鉴记录：${archiveCount} 部；本次完整索引纳入：${includedCount} 部。
     观看状态统计：${statusSummary}
+    评价证据统计：${evidenceSummary}
 
     【完整作品索引】
     下面的索引用于覆盖全部作品、识别别名、排除重复推荐。每行包含作品名、别名、年份、用户状态、用户态度和题材：
@@ -160,6 +164,7 @@ export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string
     证据边界：
     - “想看”只能说明愿望，不能当作用户已经看过或喜欢。
     - “追更/已看完”才可用于观看经历；“非常喜欢/喜欢/不太喜欢/不喜欢”和短评才可用于强烈价值判断。
+    - 短评是重点证据而不是必填项；没有短评的作品仍须依据观看状态、明确态度、题材、年份和索引位置参与整体归纳，不要因为没有逐部点评就忽略它们。
     - 只引用索引中确实存在的作品名，不要虚构用户短评、剧情细节、台词或观看经历。
     - 作品名的别名也视为已出现作品；推荐时避开完整索引中的标题、别名、续作、重制版、总集篇和同系列条目。
     - 如果只能根据 AniList 的年份和题材做推断，请明确使用“可能/倾向于”等措辞。

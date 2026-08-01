@@ -58,4 +58,13 @@ describe('archive storage boundary', () => {
     expect(state.selectedAnimeDetails.size).toBe(1);
     expect(state.selectedIds).toEqual(new Set(['77']));
   });
+
+  it('migrates legacy archive entries without a status using their release period', () => {
+    const storage = new MemoryStorage();
+    const { userStatus: _legacyStatus, ...legacyAnime } = anime;
+    storage.setItem(ARCHIVE_STORAGE_KEYS.details, JSON.stringify([legacyAnime]));
+
+    const state = loadArchiveState(storage);
+    expect(state.selectedAnimeDetails.get('77')).toMatchObject({ userStatus: 'COMPLETED' });
+  });
 });

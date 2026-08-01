@@ -18,6 +18,7 @@ import { buildTasteProfile } from './services/tasteProfile';
 import { Anime, OtakuRank, UserAnimeReaction, UserAnimeStatus } from './types';
 import { createBackup, NormalizedBackup, parseAndMigrateBackup } from './features/backup/backupSchema';
 import { normalizeAnimeRecord } from './shared/schemas/anime';
+import { getDefaultArchiveStatus } from './services/archiveStatus';
 import {
   clearArchiveState,
   loadArchiveState,
@@ -73,8 +74,8 @@ const buildYears = (start: number, end: number) => {
   return Array.from({ length: safeEnd - safeStart + 1 }, (_, index) => safeEnd - index);
 };
 
-const normalizeUserStatus = (status?: UserAnimeStatus): UserAnimeStatus =>
-  status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN';
+const normalizeUserStatus = (status: UserAnimeStatus | undefined, fallback: UserAnimeStatus): UserAnimeStatus =>
+  status === 'PLAN' || status === 'WATCHING' || status === 'COMPLETED' ? status : fallback;
 
 const normalizeUserReaction = (reaction?: UserAnimeReaction): UserAnimeReaction =>
   reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL';
@@ -82,7 +83,7 @@ const normalizeUserReaction = (reaction?: UserAnimeReaction): UserAnimeReaction 
 const normalizeArchiveAnime = (anime: Anime): Anime =>
   normalizeAnimeRecord({
     ...anime,
-    userStatus: normalizeUserStatus(anime.userStatus),
+    userStatus: normalizeUserStatus(anime.userStatus, getDefaultArchiveStatus(anime)),
     userReaction: normalizeUserReaction(anime.userReaction),
     userNote: typeof anime.userNote === 'string' ? anime.userNote.slice(0, 280) : undefined,
   });
@@ -311,7 +312,12 @@ export default function App() {
       nextDetails.delete(id);
     } else {
       nextIds.add(id);
-      nextDetails.set(id, { ...anime, userStatus: 'PLAN', userReaction: 'NEUTRAL', userNote: undefined });
+      nextDetails.set(id, {
+        ...anime,
+        userStatus: getDefaultArchiveStatus(anime),
+        userReaction: 'NEUTRAL',
+        userNote: undefined,
+      });
     }
     setSelectedIds(nextIds);
     setSelectedAnimeDetails(nextDetails);

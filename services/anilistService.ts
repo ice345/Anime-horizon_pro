@@ -139,6 +139,9 @@ query ($ids: [Int]) {
 }
 `;
 
+export const MAX_ARCHIVE_RECOMMENDATION_SOURCES = 60;
+const ARCHIVE_RECOMMENDATION_BATCH_SIZE = 20;
+
 const delay = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve, reject) => {
     const timer = globalThis.setTimeout(resolve, ms);
@@ -356,18 +359,71 @@ const sourceAffinity: Record<UserAnimeReaction, number> = {
 const normalizeReaction = (reaction?: UserAnimeReaction): UserAnimeReaction =>
   reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL';
 
+const recommendationSourceWeight = (anime: Anime) => {
+  const statusWeight = { PLAN: 0, WATCHING: 2, COMPLETED: 3 }[anime.userStatus || 'PLAN'];
+  const reactionWeight = { LOVE: 4, LIKE: 3, NEUTRAL: 0, DISLIKE: 1, HATE: 0 }[normalizeReaction(anime.userReaction)];
+  const reviewWeight = anime.userNote?.trim() ? 5 : 0;
+  return statusWeight + reactionWeight + reviewWeight;
+};
+
+const selectRecommendationSourceIds = (archive: Anime[]) => {
+  const ranked = archive
+    .map((item, index) => ({ item, index, weight: recommendationSourceWeight(item) }))
+    .sort(
+      (left, right) =>
+        right.weight - left.weight || right.item.seasonYear - left.item.seasonYear || left.index - right.index
+    );
+  const selected: Anime[] = [];
+  const selectedIds = new Set<string>();
+  const coveredYears = new Set<number>();
+
+  // Keep older years represented even when a user has a large, recent archive.
+  for (const candidate of ranked) {
+    if (selected.length >= MAX_ARCHIVE_RECOMMENDATION_SOURCES) break;
+    if (coveredYears.has(candidate.item.seasonYear)) continue;
+    coveredYears.add(candidate.item.seasonYear);
+    selected.push(candidate.item);
+    selectedIds.add(String(candidate.item.id));
+  }
+  for (const candidate of ranked) {
+    if (selected.length >= MAX_ARCHIVE_RECOMMENDATION_SOURCES) break;
+    if (selectedIds.has(String(candidate.item.id))) continue;
+    selected.push(candidate.item);
+    selectedIds.add(String(candidate.item.id));
+  }
+
+  return Array.from(new Set(selected.map((item) => Number(item.id)).filter(Number.isFinite)));
+};
+
+const splitIntoBatches = <T>(items: T[], size: number) => {
+  const batches: T[][] = [];
+  for (let index = 0; index < items.length; index += size) batches.push(items.slice(index, index + size));
+  return batches;
+};
+
 export const fetchArchiveRecommendations = async (
   archive: Anime[],
   limit: number = 12
 ): Promise<ArchiveRecommendation[]> => {
-  const ids = archive
-    .map((item) => Number(item.id))
-    .filter(Number.isFinite)
-    .slice(0, 20);
+  const ids = selectRecommendationSourceIds(archive);
   if (!ids.length) return [];
 
-  const payload = await fetchWithRetry({ ids }, 0, ARCHIVE_RECOMMENDATION_QUERY);
-  const data = anilistRecommendationPayloadSchema.parse(payload).data?.Page?.media || [];
+  const batches = splitIntoBatches(ids, ARCHIVE_RECOMMENDATION_BATCH_SIZE);
+  const settled = await Promise.allSettled(
+    batches.map((batch) => fetchWithRetry({ ids: batch }, 0, ARCHIVE_RECOMMENDATION_QUERY))
+  );
+  const successfulPayloads = settled
+    .filter((result): result is PromiseFulfilledResult<unknown> => result.status === 'fulfilled')
+    .map((result) => result.value);
+  if (!successfulPayloads.length) {
+    const firstFailure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+    throw firstFailure?.reason instanceof Error
+      ? firstFailure.reason
+      : new Error('AniList recommendation request failed');
+  }
+  const data = successfulPayloads.flatMap(
+    (payload) => anilistRecommendationPayloadSchema.parse(payload).data?.Page?.media || []
+  );
   const selectedIds = new Set(archive.map((item) => String(item.id)));
   const archiveById = new Map(archive.map((item) => [String(item.id), item]));
   const preferredGenreWeights = new Map<string, number>();
