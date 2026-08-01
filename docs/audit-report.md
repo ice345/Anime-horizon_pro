@@ -12,17 +12,17 @@ Anime Horizon 是一个以 AniList 为外部目录、以浏览器本地数据为
 
 ### 当前基线
 
-| 检查项 | 结果 | 备注 |
-| --- | --- | --- |
-| `npm install` | 通过 | Node `v26.5.0`，npm `11.17.0`；依赖已是最新锁定状态 |
-| `npm run build` | 通过 | Vite `6.4.1`；入口 JS gzip 约 84.45 kB，CSS gzip 约 11.14 kB |
-| TypeScript | 通过（直接执行） | `npx tsc --noEmit` 通过，但没有 `npm run typecheck` 脚本 |
-| lint | 未建立 | `package.json` 没有 lint 脚本或 ESLint 配置 |
-| format | 未建立 | 没有 Prettier 配置或检查脚本 |
-| 单元/组件测试 | 未建立 | 没有测试脚本、测试文件或测试依赖 |
-| Playwright E2E | 未建立 | 没有 Playwright 配置、浏览器测试或 mock server |
-| CI / Dependabot | 未建立 | 没有 `.github/workflows` 或 `.github/dependabot.yml` |
-| 开发命令 | 可用 | `npm run dev`、`dev:remote`、`dev:local`、`preview`、`start`、`data:sync`、`data:sync:schedule` |
+| 检查项          | 结果             | 备注                                                                                            |
+| --------------- | ---------------- | ----------------------------------------------------------------------------------------------- |
+| `npm install`   | 通过             | Node `v26.5.0`，npm `11.17.0`；依赖已是最新锁定状态                                             |
+| `npm run build` | 通过             | Vite `6.4.1`；入口 JS gzip 约 84.45 kB，CSS gzip 约 11.14 kB                                    |
+| TypeScript      | 通过（直接执行） | `npx tsc --noEmit` 通过，但没有 `npm run typecheck` 脚本                                        |
+| lint            | 未建立           | `package.json` 没有 lint 脚本或 ESLint 配置                                                     |
+| format          | 未建立           | 没有 Prettier 配置或检查脚本                                                                    |
+| 单元/组件测试   | 未建立           | 没有测试脚本、测试文件或测试依赖                                                                |
+| Playwright E2E  | 未建立           | 没有 Playwright 配置、浏览器测试或 mock server                                                  |
+| CI / Dependabot | 未建立           | 没有 `.github/workflows` 或 `.github/dependabot.yml`                                            |
+| 开发命令        | 可用             | `npm run dev`、`dev:remote`、`dev:local`、`preview`、`start`、`data:sync`、`data:sync:schedule` |
 
 ## 1. 项目功能概览
 
@@ -368,4 +368,3 @@ Node 静态服务器会把不存在的文件回退到 `dist/index.html`（`serve
 - SQL 备份是否必须兼容现有外部数据库；当前报告假定它只作为 Anime Horizon 的受限可移植文本。
 
 这些事项应在对应阶段以 issue 或产品决策记录确认，不应在没有证据时改变用户数据格式或删除功能。
-

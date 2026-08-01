@@ -1,15 +1,68 @@
 import { createServer } from 'node:http';
-import { createReadStream, existsSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { createReadStream, statSync } from 'node:fs';
+import { dirname, extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+const moduleLocation = (() => {
+  try {
+    const moduleUrl = new URL(import.meta.url);
+    if (moduleUrl.protocol === 'file:') {
+      const modulePath = fileURLToPath(moduleUrl);
+      return { directory: dirname(modulePath), path: modulePath };
+    }
+  } catch {
+    // Vite/Vitest may expose a non-file module URL; the process working directory is the app root there.
+  }
+  return { directory: process.cwd(), path: null };
+})();
+
+const __dirname = moduleLocation.directory;
 const distDir = join(__dirname, 'dist');
+const distRoot = resolve(distDir);
 const port = Number(process.env.PORT || 3000);
+const isProduction = process.env.NODE_ENV === 'production';
+
+function readPositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
 const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
 const deepseekBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/chat/completions';
 const deepseekModel = process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash';
-const corsOrigin = process.env.CORS_ORIGIN || '*';
+const configuredCorsOrigins = process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN ?? '';
+const maxBodyBytes = readPositiveInteger(process.env.AI_MAX_BODY_BYTES, 32_768);
+const maxPromptChars = readPositiveInteger(process.env.AI_MAX_PROMPT_CHARS, 16_000);
+const maxUpstreamResponseBytes = readPositiveInteger(process.env.AI_MAX_RESPONSE_BYTES, 512_000);
+const upstreamTimeoutMs = readPositiveInteger(process.env.AI_TIMEOUT_MS, 15_000);
+const rateLimitWindowMs = 60_000;
+const rateLimitMax = readPositiveInteger(process.env.AI_RATE_LIMIT_PER_MINUTE, 10);
+const maxConcurrentRequests = readPositiveInteger(process.env.AI_MAX_CONCURRENCY, 2);
+const allowedModels = new Set(
+  (process.env.AI_ALLOWED_MODELS || deepseekModel)
+    .split(',')
+    .map((model) => model.trim())
+    .filter(Boolean)
+);
+const rateLimitBuckets = new Map();
+let activeAIRequests = 0;
+
+if (!allowedModels.size) allowedModels.add(deepseekModel);
+if (isProduction && configuredCorsOrigins.split(',').some((origin) => origin.trim() === '*')) {
+  throw new Error('CORS_ORIGIN=* is not allowed in production; configure CORS_ORIGINS explicitly.');
+}
+
+const corsOrigins = new Set(
+  configuredCorsOrigins
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+);
+
+if (!isProduction && !corsOrigins.size) {
+  corsOrigins.add('http://localhost:3000');
+  corsOrigins.add('http://127.0.0.1:3000');
+}
 
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
@@ -21,121 +74,382 @@ const mimeTypes = {
   '.jpeg': 'image/jpeg',
   '.webp': 'image/webp',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
 };
 
-const readBody = (req) => {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', (chunk) => {
-      body += chunk;
-      if (body.length > 80_000) {
-        req.destroy();
-        reject(new Error('Request body too large'));
-      }
-    });
-    req.on('end', () => resolve(body));
-    req.on('error', reject);
-  });
+export class BodyTooLargeError extends Error {
+  constructor() {
+    super('Request body too large');
+    this.name = 'BodyTooLargeError';
+  }
+}
+
+const securityHeaders = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self' https:",
+  ].join('; '),
 };
 
-const sendJson = (res, status, data) => {
-  res.writeHead(status, {
+if (isProduction) {
+  securityHeaders['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+}
+
+const getCorsHeaders = (req) => {
+  const origin = req.headers.origin;
+  const headers = {
+    Vary: 'Origin',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+  };
+
+  if (origin && corsOrigins.has(origin)) {
+    headers['Access-Control-Allow-Origin'] = origin;
+  }
+
+  return headers;
+};
+
+const responseHeaders = (req, extra = {}) => ({
+  ...securityHeaders,
+  ...getCorsHeaders(req),
+  ...extra,
+});
+
+const sendJson = (req, res, status, data, extra = {}) => {
+  const headers = responseHeaders(req, {
     'Content-Type': 'application/json; charset=utf-8',
     'Cache-Control': 'no-store',
-    'Access-Control-Allow-Origin': corsOrigin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type'
+    ...extra,
   });
+
+  res.writeHead(status, headers);
+  if (status === 204) {
+    res.end();
+    return;
+  }
   res.end(JSON.stringify(data));
 };
 
+const sendError = (req, res, status, code, message, extra = {}) => {
+  sendJson(req, res, status, { error: code, message }, extra);
+};
+
+const readBody = (req) =>
+  new Promise((resolveBody, reject) => {
+    const contentLength = Number(req.headers['content-length'] || 0);
+    if (Number.isFinite(contentLength) && contentLength > maxBodyBytes) {
+      req.resume();
+      reject(new BodyTooLargeError());
+      return;
+    }
+
+    let body = '';
+    let bodyBytes = 0;
+    let settled = false;
+
+    req.on('data', (chunk) => {
+      if (settled) return;
+      bodyBytes += Buffer.byteLength(chunk);
+      if (bodyBytes > maxBodyBytes) {
+        settled = true;
+        req.resume();
+        reject(new BodyTooLargeError());
+        return;
+      }
+      body += chunk;
+    });
+    req.on('end', () => {
+      if (!settled) resolveBody(body);
+    });
+    req.on('error', (error) => {
+      if (!settled) reject(error);
+    });
+  });
+
+const getClientIp = (req) => {
+  if (process.env.TRUST_PROXY === 'true') {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string' && forwarded.trim()) return forwarded.split(',')[0].trim();
+  }
+  return req.socket.remoteAddress || 'unknown';
+};
+
+const checkRateLimit = (key, now = Date.now()) => {
+  const current = rateLimitBuckets.get(key);
+  if (!current || now - current.startedAt >= rateLimitWindowMs) {
+    rateLimitBuckets.set(key, { startedAt: now, count: 1 });
+    return { allowed: true, retryAfter: 0 };
+  }
+
+  if (current.count >= rateLimitMax) {
+    return {
+      allowed: false,
+      retryAfter: Math.max(1, Math.ceil((rateLimitWindowMs - (now - current.startedAt)) / 1000)),
+    };
+  }
+
+  current.count += 1;
+  return { allowed: true, retryAfter: 0 };
+};
+
+export const resetRateLimitState = () => {
+  rateLimitBuckets.clear();
+  activeAIRequests = 0;
+};
+
+const isAllowedOrigin = (req) => {
+  const origin = req.headers.origin;
+  return !origin || corsOrigins.has(origin);
+};
+
+const validateUpstreamConfiguration = () => {
+  let parsed;
+  try {
+    parsed = new URL(deepseekBaseUrl);
+  } catch {
+    throw new Error('DEEPSEEK_BASE_URL must be a valid URL');
+  }
+  if (parsed.protocol !== 'https:' && isProduction) {
+    throw new Error('DEEPSEEK_BASE_URL must use HTTPS in production');
+  }
+};
+
 const handleDeepSeek = async (req, res) => {
+  if (!isAllowedOrigin(req)) {
+    sendError(req, res, 403, 'CORS_FORBIDDEN', 'Origin is not allowed.');
+    return;
+  }
+
   if (req.method === 'OPTIONS') {
-    sendJson(res, 204, {});
+    sendJson(req, res, 204, {});
     return;
   }
 
   if (req.method !== 'POST') {
-    sendJson(res, 405, { error: 'Method not allowed' });
+    sendError(req, res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
     return;
   }
 
   if (!deepseekApiKey) {
-    sendJson(res, 500, { error: 'DEEPSEEK_API_KEY is not configured' });
+    sendError(req, res, 503, 'AI_NOT_CONFIGURED', 'AI service is not configured.');
     return;
   }
 
+  const rateLimit = checkRateLimit(getClientIp(req));
+  if (!rateLimit.allowed) {
+    sendError(req, res, 429, 'RATE_LIMITED', 'Too many AI requests. Try again later.', {
+      'Retry-After': String(rateLimit.retryAfter),
+    });
+    return;
+  }
+
+  if (activeAIRequests >= maxConcurrentRequests) {
+    sendError(req, res, 429, 'CONCURRENCY_LIMITED', 'AI service is busy. Try again shortly.', {
+      'Retry-After': '5',
+    });
+    return;
+  }
+
+  activeAIRequests += 1;
   try {
     const raw = await readBody(req);
-    const payload = JSON.parse(raw || '{}');
-    const prompt = String(payload.prompt || '');
-
-    if (!prompt.trim()) {
-      sendJson(res, 400, { error: 'Prompt is required' });
+    let payload;
+    try {
+      payload = JSON.parse(raw || '{}');
+    } catch {
+      sendError(req, res, 400, 'INVALID_JSON', 'Request body must be valid JSON.');
       return;
     }
 
-    const upstream = await fetch(deepseekBaseUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${deepseekApiKey}`
-      },
-      body: JSON.stringify({
-        model: payload.model || deepseekModel,
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }
-      })
-    });
+    const prompt = typeof payload?.prompt === 'string' ? payload.prompt.trim() : '';
+    if (!prompt) {
+      sendError(req, res, 400, 'PROMPT_REQUIRED', 'Prompt is required.');
+      return;
+    }
+    if (prompt.length > maxPromptChars) {
+      sendError(req, res, 413, 'PROMPT_TOO_LARGE', 'Prompt is too long.');
+      return;
+    }
 
-    const text = await upstream.text();
+    validateUpstreamConfiguration();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), upstreamTimeoutMs);
+    timeout.unref?.();
+
+    let upstream;
+    try {
+      upstream = await fetch(deepseekBaseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          Authorization: `Bearer ${deepseekApiKey}`,
+        },
+        body: JSON.stringify({
+          model: [...allowedModels][0],
+          messages: [{ role: 'user', content: prompt }],
+          response_format: { type: 'json_object' },
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        sendError(req, res, 504, 'AI_TIMEOUT', 'AI service timed out.');
+        return;
+      }
+      console.error('[AI proxy] upstream request failed', error?.name || 'unknown error');
+      sendError(req, res, 502, 'AI_UPSTREAM_UNAVAILABLE', 'AI service is temporarily unavailable.');
+      return;
+    } finally {
+      clearTimeout(timeout);
+    }
+
     if (!upstream.ok) {
-      sendJson(res, upstream.status, { error: text || upstream.statusText });
+      if (upstream.status === 429) {
+        sendError(req, res, 429, 'AI_UPSTREAM_RATE_LIMITED', 'AI service is rate limited.', {
+          'Retry-After': upstream.headers.get('Retry-After') || '30',
+        });
+        return;
+      }
+      console.warn(`[AI proxy] upstream responded with ${upstream.status}`);
+      sendError(req, res, 502, 'AI_UPSTREAM_ERROR', 'AI service returned an error.');
       return;
     }
 
-    res.writeHead(200, {
-      'Content-Type': 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store',
-      'Access-Control-Allow-Origin': corsOrigin,
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type'
-    });
-    res.end(text);
+    const upstreamBody = await upstream.arrayBuffer();
+    if (upstreamBody.byteLength > maxUpstreamResponseBytes) {
+      sendError(req, res, 502, 'AI_RESPONSE_TOO_LARGE', 'AI service returned an oversized response.');
+      return;
+    }
+
+    res.writeHead(
+      200,
+      responseHeaders(req, {
+        'Content-Type': 'application/json; charset=utf-8',
+        'Cache-Control': 'no-store',
+      })
+    );
+    res.end(Buffer.from(upstreamBody));
   } catch (error) {
-    sendJson(res, 500, { error: error instanceof Error ? error.message : 'DeepSeek proxy failed' });
+    if (error instanceof BodyTooLargeError) {
+      sendError(req, res, 413, 'REQUEST_TOO_LARGE', 'Request body is too large.');
+      return;
+    }
+    console.error('[AI proxy] request failed', error?.name || 'unknown error');
+    if (!res.headersSent) sendError(req, res, 500, 'AI_PROXY_ERROR', 'AI proxy failed.');
+  } finally {
+    activeAIRequests -= 1;
   }
 };
 
-const serveStatic = async (req, res) => {
-  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
-  const decodedPath = decodeURIComponent(url.pathname);
-  const safePath = normalize(decodedPath).replace(/^(\.\.[/\\])+/, '');
-  const requested = safePath === '/' ? '/index.html' : safePath;
-  const filePath = join(distDir, requested);
-  const finalPath = existsSync(filePath) ? filePath : join(distDir, 'index.html');
-
+const fileExists = (filePath) => {
   try {
-    const ext = extname(finalPath);
-    res.writeHead(200, {
-      'Content-Type': mimeTypes[ext] || 'application/octet-stream',
-      'Cache-Control': ext === '.html' ? 'no-cache' : 'public, max-age=31536000, immutable'
-    });
-    createReadStream(finalPath).pipe(res);
+    return statSync(filePath).isFile();
   } catch {
-    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-    res.end('Not found');
+    return false;
   }
 };
 
-createServer(async (req, res) => {
-  if ((req.url || '').startsWith('/api/deepseek/chat')) {
-    await handleDeepSeek(req, res);
+const getCacheControl = (requestPath, ext) => {
+  if (ext === '.html') return 'no-cache';
+  if (requestPath.startsWith('/data/')) return 'public, max-age=300, must-revalidate';
+  if (['.js', '.css'].includes(ext) && /[-._][A-Za-z0-9]{8,}\.(?:js|css)$/.test(requestPath)) {
+    return 'public, max-age=31536000, immutable';
+  }
+  if (['.png', '.jpg', '.jpeg', '.webp', '.svg', '.ico'].includes(ext)) {
+    return 'public, max-age=2592000, must-revalidate';
+  }
+  return 'public, max-age=3600, must-revalidate';
+};
+
+const getStaticFile = (requestPath) => {
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(requestPath);
+  } catch {
+    return { error: 'INVALID_PATH' };
+  }
+
+  const relativePath = normalize(decodedPath).replace(/^[/\\]+/, '');
+  const candidate = resolve(distDir, relativePath || 'index.html');
+  if (!candidate.startsWith(`${distRoot}/`) && candidate !== distRoot) return { error: 'INVALID_PATH' };
+  if (fileExists(candidate)) return { filePath: candidate, requestPath: decodedPath };
+
+  const requestedExt = extname(decodedPath);
+  if (requestedExt || decodedPath.startsWith('/data/')) return { error: 'NOT_FOUND' };
+
+  const indexPath = join(distDir, 'index.html');
+  return fileExists(indexPath) ? { filePath: indexPath, requestPath: '/index.html' } : { error: 'NOT_FOUND' };
+};
+
+const serveStatic = (req, res) => {
+  const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const result = getStaticFile(url.pathname);
+  if (result.error === 'INVALID_PATH') {
+    sendError(req, res, 400, 'INVALID_PATH', 'Invalid path.');
+    return;
+  }
+  if (result.error === 'NOT_FOUND' || !result.filePath) {
+    sendError(req, res, 404, 'NOT_FOUND', 'Not found.');
     return;
   }
 
-  await serveStatic(req, res);
-}).listen(port, () => {
-  console.log(`Anime Horizon listening on ${port}`);
-});
+  const ext = extname(result.filePath);
+  res.writeHead(
+    200,
+    responseHeaders(req, {
+      'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+      'Cache-Control': getCacheControl(result.requestPath, ext),
+    })
+  );
+
+  const stream = createReadStream(result.filePath);
+  stream.on('error', (error) => {
+    console.error(`[static] stream failed: ${error?.code || 'unknown error'}`);
+    if (res.headersSent) res.destroy();
+    else sendError(req, res, 500, 'STATIC_READ_FAILED', 'Unable to read resource.');
+  });
+  stream.pipe(res);
+};
+
+export const createAppServer = () =>
+  createServer(async (req, res) => {
+    try {
+      const requestUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+      if (requestUrl.pathname === '/api/deepseek/chat') {
+        await handleDeepSeek(req, res);
+        return;
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        sendError(req, res, 405, 'METHOD_NOT_ALLOWED', 'Method not allowed.');
+        return;
+      }
+      serveStatic(req, res);
+    } catch (error) {
+      console.error('[server] request failed', error?.name || 'unknown error');
+      if (!res.headersSent) sendError(req, res, 500, 'INTERNAL_ERROR', 'Internal server error.');
+      else res.destroy();
+    }
+  });
+
+const isMainModule =
+  moduleLocation.path && process.argv[1] && resolve(process.argv[1]) === resolve(moduleLocation.path);
+
+if (isMainModule) {
+  const server = createAppServer();
+  server.listen(port, () => {
+    console.log(`Anime Horizon listening on ${port}`);
+  });
+}

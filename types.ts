@@ -48,15 +48,15 @@ export type OtakuRank = '现充' | '路人' | '动画爱好者' | '老二次元'
 export const SEASONS: Season[] = ['WINTER', 'SPRING', 'SUMMER', 'FALL'];
 
 export const SEASON_CN: Record<Season, string> = {
-  'WINTER': '冬番 (1月)',
-  'SPRING': '春番 (4月)',
-  'SUMMER': '夏番 (7月)',
-  'FALL': '秋番 (10月)'
+  WINTER: '冬番 (1月)',
+  SPRING: '春番 (4月)',
+  SUMMER: '夏番 (7月)',
+  FALL: '秋番 (10月)',
 };
 
 export const SEASON_ORDER: Record<Season, number> = {
-  'WINTER': 0,
-  'SPRING': 1,
-  'SUMMER': 2,
-  'FALL': 3
+  WINTER: 0,
+  SPRING: 1,
+  SUMMER: 2,
+  FALL: 3,
 };

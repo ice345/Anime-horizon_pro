@@ -1,6 +1,6 @@
 import { Anime, Season, UserAnimeReaction } from '../types';
 
-const API_URL = "https://graphql.anilist.co";
+const API_URL = 'https://graphql.anilist.co';
 
 // Data mode config (remote fetch vs. local cached JSON)
 const DATA_MODE = import.meta.env.VITE_DATA_MODE || 'remote';
@@ -8,10 +8,10 @@ const LOCAL_DATA_BASE = import.meta.env.VITE_LOCAL_DATA_BASE || '/data';
 
 // Rate limiting configuration
 const CONFIG = {
-  PAGE_DELAY: 1000,    // Delay between paginated calls when needed
-  SEASON_DELAY: 800,   // Delay between seasons to keep cadence gentle
-  RETRY_DELAY: 60000,  // Cooldown on 429
-  MAX_RETRIES: 3,      // Cap retries to avoid hammering the API
+  PAGE_DELAY: 1000, // Delay between paginated calls when needed
+  SEASON_DELAY: 800, // Delay between seasons to keep cadence gentle
+  RETRY_DELAY: 60000, // Cooldown on 429
+  MAX_RETRIES: 3, // Cap retries to avoid hammering the API
 };
 
 // Cache to store fetched years to avoid re-fetching
@@ -137,7 +137,7 @@ query ($ids: [Int]) {
 }
 `;
 
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promise<any> {
   try {
@@ -145,16 +145,16 @@ async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promi
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify({
         query,
-        variables
-      })
+        variables,
+      }),
     });
 
     if (response.status === 429) {
-      if (retries >= CONFIG.MAX_RETRIES) throw new Error("Rate limit exceeded max retries");
+      if (retries >= CONFIG.MAX_RETRIES) throw new Error('Rate limit exceeded max retries');
       const retryAfter = parseInt(response.headers.get('Retry-After') || '60', 10);
       console.warn(`429 Detected. Cooling down for ${retryAfter || 60}s...`);
       await delay(Math.max(retryAfter * 1000, CONFIG.RETRY_DELAY));
@@ -167,7 +167,6 @@ async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promi
 
     const json = await response.json();
     return json.data;
-
   } catch (error) {
     if (retries < CONFIG.MAX_RETRIES) {
       console.warn(`Fetch failed, retrying (${retries + 1}/${CONFIG.MAX_RETRIES})...`);
@@ -181,15 +180,18 @@ async function fetchWithRetry(variables: any, retries = 0, query = QUERY): Promi
 const normalizeAnime = (anime: any): Anime => ({
   ...anime,
   id: String(anime.id),
-  studios: anime.studios?.nodes?.map((studio: { name: string }) => studio.name) || anime.studios || []
+  studios: anime.studios?.nodes?.map((studio: { name: string }) => studio.name) || anime.studios || [],
 });
 
 async function fetchLocalBySeason(year: number, season: Season, perSeason: number): Promise<Anime[]> {
   try {
     const res = await fetch(`${LOCAL_DATA_BASE}/anime-${year}.json`);
     if (!res.ok) throw new Error(`Local data missing for ${year}`);
-    const data = await res.json() as Anime[];
-    return data.filter((anime) => anime.season === season).slice(0, perSeason).map(normalizeAnime);
+    const data = (await res.json()) as Anime[];
+    return data
+      .filter((anime) => anime.season === season)
+      .slice(0, perSeason)
+      .map(normalizeAnime);
   } catch (err) {
     console.warn(`[LOCAL DATA] ${err instanceof Error ? err.message : err}`);
     return fetchRemoteBySeason(year, season, perSeason);
@@ -201,7 +203,7 @@ async function fetchRemoteBySeason(year: number, season: Season, perSeason: numb
     year,
     season,
     page: 1,
-    perPage: perSeason
+    perPage: perSeason,
   });
 
   return (data?.Page?.media || []).map(normalizeAnime);
@@ -237,8 +239,14 @@ export const searchAnime = async (search: string, year?: number, perPage: number
     try {
       const local = await fetch(`${LOCAL_DATA_BASE}/anime-${year}.json`);
       if (local.ok) {
-        const entries = (await local.json() as Anime[])
-          .filter((item) => [item.title.native, item.title.romaji, item.title.english].filter(Boolean).join(' ').toLocaleLowerCase().includes(normalizedSearch.toLocaleLowerCase()))
+        const entries = ((await local.json()) as Anime[])
+          .filter((item) =>
+            [item.title.native, item.title.romaji, item.title.english]
+              .filter(Boolean)
+              .join(' ')
+              .toLocaleLowerCase()
+              .includes(normalizedSearch.toLocaleLowerCase())
+          )
           .slice(0, perPage)
           .map(normalizeAnime);
         animeCache[cacheKey] = entries;
@@ -249,7 +257,11 @@ export const searchAnime = async (search: string, year?: number, perPage: number
     }
   }
 
-  const data = await fetchWithRetry({ search: normalizedSearch, year: year || null, page: 1, perPage }, 0, SEARCH_QUERY);
+  const data = await fetchWithRetry(
+    { search: normalizedSearch, year: year || null, page: 1, perPage },
+    0,
+    SEARCH_QUERY
+  );
   const entries = (data?.Page?.media || []).map(normalizeAnime);
   animeCache[cacheKey] = entries;
   return entries;
@@ -260,22 +272,25 @@ export interface ArchiveRecommendation {
   reason: string;
 }
 
-const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '这部作品';
-
 const sourceAffinity: Record<UserAnimeReaction, number> = {
   LOVE: 1.25,
   LIKE: 1.08,
   NEUTRAL: 0.76,
-  DISLIKE: 0.30,
-  HATE: 0
+  DISLIKE: 0.3,
+  HATE: 0,
 };
 
-const normalizeReaction = (reaction?: UserAnimeReaction): UserAnimeReaction => (
-  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL'
-);
+const normalizeReaction = (reaction?: UserAnimeReaction): UserAnimeReaction =>
+  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL';
 
-export const fetchArchiveRecommendations = async (archive: Anime[], limit: number = 12): Promise<ArchiveRecommendation[]> => {
-  const ids = archive.map((item) => Number(item.id)).filter(Number.isFinite).slice(0, 20);
+export const fetchArchiveRecommendations = async (
+  archive: Anime[],
+  limit: number = 12
+): Promise<ArchiveRecommendation[]> => {
+  const ids = archive
+    .map((item) => Number(item.id))
+    .filter(Number.isFinite)
+    .slice(0, 20);
   if (!ids.length) return [];
 
   const data = await fetchWithRetry({ ids }, 0, ARCHIVE_RECOMMENDATION_QUERY);
@@ -285,13 +300,21 @@ export const fetchArchiveRecommendations = async (archive: Anime[], limit: numbe
   const avoidedGenreWeights = new Map<string, number>();
   archive.forEach((item) => {
     const reaction = normalizeReaction(item.userReaction);
-    const target = reaction === 'LOVE' || reaction === 'LIKE' ? preferredGenreWeights : reaction === 'DISLIKE' || reaction === 'HATE' ? avoidedGenreWeights : null;
+    const target =
+      reaction === 'LOVE' || reaction === 'LIKE'
+        ? preferredGenreWeights
+        : reaction === 'DISLIKE' || reaction === 'HATE'
+          ? avoidedGenreWeights
+          : null;
     if (!target) return;
     const weight = reaction === 'LOVE' || reaction === 'HATE' ? 1.35 : 1;
     (item.genres || []).forEach((genre) => target.set(genre, (target.get(genre) || 0) + weight));
   });
   const archiveGenres = new Set(archive.flatMap((item) => item.genres || []));
-  const candidates = new Map<string, { anime: Anime; score: number; sharedGenres: string[]; sourceTitles: string[]; preferredSources: string[] }>();
+  const candidates = new Map<
+    string,
+    { anime: Anime; score: number; sharedGenres: string[]; sourceTitles: string[]; preferredSources: string[] }
+  >();
 
   (data?.Page?.media || []).forEach((source: any) => {
     const sourceTitle = source?.title?.native || source?.title?.romaji || '年鉴作品';
@@ -304,22 +327,36 @@ export const fetchArchiveRecommendations = async (archive: Anime[], limit: numbe
       const candidate = normalizeAnime(node.mediaRecommendation);
       if (selectedIds.has(candidate.id)) return;
       const sharedGenres = (candidate.genres || []).filter((genre) => archiveGenres.has(genre));
-      const preferredMatch = (candidate.genres || []).reduce((sum, genre) => sum + (preferredGenreWeights.get(genre) || 0), 0);
-      const avoidedMatch = (candidate.genres || []).reduce((sum, genre) => sum + (avoidedGenreWeights.get(genre) || 0), 0);
-      const score = (Number(node.rating || 0) * affinity)
-        + (sharedGenres.length * 12)
-        + (preferredMatch * 10)
-        - (avoidedMatch * 8)
-        + ((candidate.averageScore || 0) * 0.18)
-        + Math.min(10, Math.log1p(candidate.popularity || 0));
+      const preferredMatch = (candidate.genres || []).reduce(
+        (sum, genre) => sum + (preferredGenreWeights.get(genre) || 0),
+        0
+      );
+      const avoidedMatch = (candidate.genres || []).reduce(
+        (sum, genre) => sum + (avoidedGenreWeights.get(genre) || 0),
+        0
+      );
+      const score =
+        Number(node.rating || 0) * affinity +
+        sharedGenres.length * 12 +
+        preferredMatch * 10 -
+        avoidedMatch * 8 +
+        (candidate.averageScore || 0) * 0.18 +
+        Math.min(10, Math.log1p(candidate.popularity || 0));
       const current = candidates.get(candidate.id);
       if (current) {
         current.score += score;
         current.sharedGenres = Array.from(new Set([...current.sharedGenres, ...sharedGenres]));
         if (!current.sourceTitles.includes(sourceTitle)) current.sourceTitles.push(sourceTitle);
-        if ((sourceReaction === 'LOVE' || sourceReaction === 'LIKE') && !current.preferredSources.includes(sourceTitle)) current.preferredSources.push(sourceTitle);
+        if ((sourceReaction === 'LOVE' || sourceReaction === 'LIKE') && !current.preferredSources.includes(sourceTitle))
+          current.preferredSources.push(sourceTitle);
       } else {
-        candidates.set(candidate.id, { anime: candidate, score, sharedGenres, sourceTitles: [sourceTitle], preferredSources: sourceReaction === 'LOVE' || sourceReaction === 'LIKE' ? [sourceTitle] : [] });
+        candidates.set(candidate.id, {
+          anime: candidate,
+          score,
+          sharedGenres,
+          sourceTitles: [sourceTitle],
+          preferredSources: sourceReaction === 'LOVE' || sourceReaction === 'LIKE' ? [sourceTitle] : [],
+        });
       }
     });
   });
@@ -331,7 +368,7 @@ export const fetchArchiveRecommendations = async (archive: Anime[], limit: numbe
       anime,
       reason: sharedGenres.length
         ? `${preferredSources.length ? `延续你喜欢的《${preferredSources[0]}》` : `延续《${sourceTitles[0]}》`}里的 ${sharedGenres.slice(0, 2).join(' / ')} 取向，并回避你标记不喜欢的方向。`
-        : `来自《${sourceTitles[0]}》的 AniList 关联推荐，并按口碑与人气重新排序。`
+        : `来自《${sourceTitles[0]}》的 AniList 关联推荐，并按口碑与人气重新排序。`,
     }));
 };
 

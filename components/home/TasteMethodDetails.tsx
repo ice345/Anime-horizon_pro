@@ -12,7 +12,7 @@ const metricLabels: Array<[keyof TasteProfile['metrics'], string]> = [
   ['eraBreadth', '年代跨度'],
   ['diversity', '题材多样'],
   ['engagement', '观看投入'],
-  ['personalCuration', '个人评鉴']
+  ['personalCuration', '个人评鉴'],
 ];
 
 export const TasteMethodDetails: React.FC<TasteMethodDetailsProps> = ({ profile }) => (

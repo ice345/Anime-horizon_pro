@@ -19,7 +19,7 @@ export const SeasonSection: React.FC<SeasonSectionProps> = ({
   loaded,
   selectedIds,
   onToggle,
-  onVisible
+  onVisible,
 }) => {
   const sentinelRef = useRef<HTMLDivElement>(null);
 

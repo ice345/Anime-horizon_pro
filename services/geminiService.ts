@@ -17,7 +17,8 @@ export interface SessionAIConfig {
   model: string;
 }
 
-const isSessionAIProvider = (value: unknown): value is SessionAIProvider => value === 'DEEPSEEK' || value === 'OPENAI_COMPATIBLE';
+const isSessionAIProvider = (value: unknown): value is SessionAIProvider =>
+  value === 'DEEPSEEK' || value === 'OPENAI_COMPATIBLE';
 
 export const getSessionAIConfig = (): SessionAIConfig | null => {
   if (typeof window === 'undefined') return null;
@@ -30,13 +31,15 @@ export const getSessionAIConfig = (): SessionAIConfig | null => {
           provider: config.provider,
           apiKey: String(config.apiKey).trim(),
           endpoint: String(config.endpoint).trim(),
-          model: String(config.model).trim()
+          model: String(config.model).trim(),
         };
       }
     }
 
     const legacyKey = window.sessionStorage.getItem(LEGACY_SESSION_DEEPSEEK_KEY)?.trim();
-    return legacyKey ? { provider: 'DEEPSEEK', apiKey: legacyKey, endpoint: DEEPSEEK_BASE_URL, model: DEEPSEEK_MODEL } : null;
+    return legacyKey
+      ? { provider: 'DEEPSEEK', apiKey: legacyKey, endpoint: DEEPSEEK_BASE_URL, model: DEEPSEEK_MODEL }
+      : null;
   } catch {
     return null;
   }
@@ -44,12 +47,15 @@ export const getSessionAIConfig = (): SessionAIConfig | null => {
 
 export const setSessionAIConfig = (config: SessionAIConfig) => {
   if (typeof window === 'undefined') return;
-  window.sessionStorage.setItem(SESSION_AI_CONFIG_KEY, JSON.stringify({
-    provider: config.provider,
-    apiKey: config.apiKey.trim(),
-    endpoint: config.endpoint.trim(),
-    model: config.model.trim()
-  }));
+  window.sessionStorage.setItem(
+    SESSION_AI_CONFIG_KEY,
+    JSON.stringify({
+      provider: config.provider,
+      apiKey: config.apiKey.trim(),
+      endpoint: config.endpoint.trim(),
+      model: config.model.trim(),
+    })
+  );
   window.sessionStorage.removeItem(LEGACY_SESSION_DEEPSEEK_KEY);
 };
 
@@ -82,7 +88,7 @@ export interface TasteAnalysisResult {
 const statusLabels: Record<UserAnimeStatus, string> = {
   PLAN: '想看',
   WATCHING: '追更',
-  COMPLETED: '已看完'
+  COMPLETED: '已看完',
 };
 
 const reactionLabels: Record<UserAnimeReaction, string> = {
@@ -90,7 +96,7 @@ const reactionLabels: Record<UserAnimeReaction, string> = {
   LIKE: '喜欢',
   NEUTRAL: '一般',
   DISLIKE: '不太喜欢',
-  HATE: '不喜欢'
+  HATE: '不喜欢',
 };
 
 const getTitle = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
@@ -104,7 +110,9 @@ const toPromptEntry = (anime: Anime) => {
 };
 
 export const buildTasteAnalysisPrompt = (anime: Anime[] | string[], rank: string) => {
-  const entries = anime.map((item) => typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item));
+  const entries = anime.map((item) =>
+    typeof item === 'string' ? `- ${item}（来自快速测评，未提供状态与短评）` : toPromptEntry(item)
+  );
   return `
     你现在不是在写文章，而是在为程序生成结构化数据。
 
@@ -236,7 +244,7 @@ export const normalizeTasteAnalysis = (source: unknown): TasteAnalysisResult => 
   if (Array.isArray(safe.recommendations)) {
     recs = safe.recommendations.slice(0, 8).map((r: any) => ({
       title: String(r?.title || '待补充'),
-      reason: String(r?.reason || fallbackText)
+      reason: String(r?.reason || fallbackText),
     }));
   }
   while (recs.length < 8) {
@@ -247,7 +255,7 @@ export const normalizeTasteAnalysis = (source: unknown): TasteAnalysisResult => 
   if (Array.isArray(safe.avoid)) {
     avoidList = safe.avoid.slice(0, 3).map((a: any) => ({
       title: String(a?.title || '待补充'),
-      reason: String(a?.reason || fallbackText)
+      reason: String(a?.reason || fallbackText),
     }));
   } else if (safe.avoid) {
     avoidList = [{ title: '待补充', reason: String(safe.avoid) }];
@@ -277,14 +285,14 @@ const callSessionAI = async (prompt: string, config: SessionAIConfig) => {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`
+        Authorization: `Bearer ${config.apiKey}`,
       },
       body: JSON.stringify({
         model: config.model,
         messages: [{ role: 'user', content: prompt }],
-        ...(config.provider === 'DEEPSEEK' ? { response_format: { type: 'json_object' } } : {})
+        ...(config.provider === 'DEEPSEEK' ? { response_format: { type: 'json_object' } } : {}),
       }),
-      signal: controller.signal
+      signal: controller.signal,
     });
 
     if (!res.ok) {
@@ -312,7 +320,7 @@ const callDeepSeekRaw = async (prompt: string) => {
     const res = await fetch(DEEPSEEK_PROXY_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, model: DEEPSEEK_MODEL })
+      body: JSON.stringify({ prompt, model: DEEPSEEK_MODEL }),
     });
 
     if (!res.ok) {
@@ -361,7 +369,9 @@ export interface EmojiGameChallenge {
 }
 
 const cleanGameText = (value: unknown, blockedWords: string[] = []) => {
-  let text = String(value || '').replace(/[\r\n]+/g, ' ').trim();
+  let text = String(value || '')
+    .replace(/[\r\n]+/g, ' ')
+    .trim();
   blockedWords.filter(Boolean).forEach((word) => {
     text = text.split(word).join('这个角色');
   });
@@ -371,7 +381,10 @@ const cleanGameText = (value: unknown, blockedWords: string[] = []) => {
 const normalizeCharacter = (value: any): GameCharacter => ({
   name: String(value?.name || '未知角色'),
   source: String(value?.source || '未知作品'),
-  hint: cleanGameText(value?.hint || '先从角色的行为和关系入手。', [String(value?.name || ''), String(value?.source || '')])
+  hint: cleanGameText(value?.hint || '先从角色的行为和关系入手。', [
+    String(value?.name || ''),
+    String(value?.source || ''),
+  ]),
 });
 
 export const startAnimeGame = async (): Promise<GameCharacter> => {
@@ -432,7 +445,10 @@ export const startEmojiGame = async (): Promise<EmojiGameChallenge> => {
   return res;
 };
 
-export const askGameOracle = async (secret: GameCharacter, question: string): Promise<{ answer: 'YES' | 'NO' | 'UNKNOWN', flavorText: string }> => {
+export const askGameOracle = async (
+  secret: GameCharacter,
+  question: string
+): Promise<{ answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string }> => {
   const prompt = `
     20 问游戏裁判。内部秘密角色：${secret.name}，内部作品：${secret.source}。用户问：“${question}”。
     规则：
@@ -444,10 +460,11 @@ export const askGameOracle = async (secret: GameCharacter, question: string): Pr
     JSON: { "answer": "YES"|"NO"|"UNKNOWN", "flavorText": "string" }
   `;
 
-  const normalizeOracle = (value: any) => ({
-    answer: value?.answer === 'YES' || value?.answer === 'NO' ? value.answer : 'UNKNOWN',
-    flavorText: cleanGameText(value?.flavorText || '信号稳定，但答案仍在雾中。', [secret.name, secret.source])
-  } as { answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string });
+  const normalizeOracle = (value: any) =>
+    ({
+      answer: value?.answer === 'YES' || value?.answer === 'NO' ? value.answer : 'UNKNOWN',
+      flavorText: cleanGameText(value?.flavorText || '信号稳定，但答案仍在雾中。', [secret.name, secret.source]),
+    }) as { answer: 'YES' | 'NO' | 'UNKNOWN'; flavorText: string };
 
   try {
     return normalizeOracle(await callDeepSeekRaw(prompt));

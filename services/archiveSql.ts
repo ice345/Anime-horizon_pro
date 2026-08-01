@@ -2,17 +2,15 @@ import { Anime, Season, UserAnimeReaction, UserAnimeStatus } from '../types';
 
 const TABLE_NAME = 'anime_archive';
 
-const normalizeStatus = (status: unknown): UserAnimeStatus => (
-  status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN'
-);
+const normalizeStatus = (status: unknown): UserAnimeStatus =>
+  status === 'WATCHING' || status === 'COMPLETED' ? status : 'PLAN';
 
-const normalizeReaction = (reaction: unknown): UserAnimeReaction => (
-  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL'
-);
+const normalizeReaction = (reaction: unknown): UserAnimeReaction =>
+  reaction === 'LOVE' || reaction === 'LIKE' || reaction === 'DISLIKE' || reaction === 'HATE' ? reaction : 'NEUTRAL';
 
 const escapeSql = (value: string | undefined | null) => {
   if (!value) return 'NULL';
-  return `'${value.replace(/'/g, "''").replace(/\\/g, "\\\\")}'`;
+  return `'${value.replace(/'/g, "''").replace(/\\/g, '\\\\')}'`;
 };
 
 export const generateArchiveSql = (selectedAnime: Anime[]) => {
@@ -40,21 +38,23 @@ CREATE TABLE IF NOT EXISTS \`${TABLE_NAME}\` (
 
   if (!selectedAnime.length) return createTable.trim();
 
-  const values = selectedAnime.map((anime) => {
-    const native = escapeSql(anime.title.native);
-    const romaji = escapeSql(anime.title.romaji);
-    const score = anime.averageScore || 'NULL';
-    const season = escapeSql(anime.season);
-    const format = escapeSql(anime.format);
-    const cover = escapeSql(anime.coverImage.extraLarge || anime.coverImage.large);
-    const description = escapeSql(anime.description || '');
-    const userStatus = escapeSql(anime.userStatus || 'PLAN');
-    const userReaction = escapeSql(anime.userReaction || 'NEUTRAL');
-    const userNote = escapeSql(anime.userNote?.trim() || '');
-    const genres = escapeSql(JSON.stringify(anime.genres || []));
+  const values = selectedAnime
+    .map((anime) => {
+      const native = escapeSql(anime.title.native);
+      const romaji = escapeSql(anime.title.romaji);
+      const score = anime.averageScore || 'NULL';
+      const season = escapeSql(anime.season);
+      const format = escapeSql(anime.format);
+      const cover = escapeSql(anime.coverImage.extraLarge || anime.coverImage.large);
+      const description = escapeSql(anime.description || '');
+      const userStatus = escapeSql(anime.userStatus || 'PLAN');
+      const userReaction = escapeSql(anime.userReaction || 'NEUTRAL');
+      const userNote = escapeSql(anime.userNote?.trim() || '');
+      const genres = escapeSql(JSON.stringify(anime.genres || []));
 
-    return `(${anime.id}, ${native}, ${romaji}, ${anime.seasonYear}, ${season}, ${format}, ${score}, ${cover}, ${genres}, ${description}, ${userStatus}, ${userReaction}, ${userNote})`;
-  }).join(',\n  ');
+      return `(${anime.id}, ${native}, ${romaji}, ${anime.seasonYear}, ${season}, ${format}, ${score}, ${cover}, ${genres}, ${description}, ${userStatus}, ${userReaction}, ${userNote})`;
+    })
+    .join(',\n  ');
 
   const insertData = `
 -- 2. Insert Selected Data
@@ -133,9 +133,8 @@ const parseSqlValues = (source: string): SqlValue[][] => {
   return rows;
 };
 
-const toSeason = (value: SqlValue): Season => (
-  value === 'WINTER' || value === 'SPRING' || value === 'SUMMER' || value === 'FALL' ? value : 'WINTER'
-);
+const toSeason = (value: SqlValue): Season =>
+  value === 'WINTER' || value === 'SPRING' || value === 'SUMMER' || value === 'FALL' ? value : 'WINTER';
 
 const parseGenres = (value: SqlValue) => {
   if (typeof value !== 'string') return [];
@@ -152,7 +151,21 @@ export const parseArchiveSql = (source: string): Anime[] => {
 
   const seenIds = new Set<string>();
   const anime = parseSqlValues(source).flatMap((row) => {
-    const [id, native, romaji, seasonYear, season, format, averageScore, coverImage, genres, description, userStatus, userReaction, userNote] = row;
+    const [
+      id,
+      native,
+      romaji,
+      seasonYear,
+      season,
+      format,
+      averageScore,
+      coverImage,
+      genres,
+      description,
+      userStatus,
+      userReaction,
+      userNote,
+    ] = row;
     const numericYear = typeof seasonYear === 'number' ? seasonYear : Number(seasonYear);
     const titleNative = typeof native === 'string' ? native : '';
     const titleRomaji = typeof romaji === 'string' ? romaji : '';
@@ -162,20 +175,22 @@ export const parseArchiveSql = (source: string): Anime[] => {
     seenIds.add(animeId);
 
     const image = typeof coverImage === 'string' ? coverImage : '';
-    return [{
-      id: animeId,
-      title: { native: titleNative, romaji: titleRomaji, english: '' },
-      coverImage: { extraLarge: image, large: image, color: '' },
-      season: toSeason(season),
-      seasonYear: numericYear,
-      genres: parseGenres(genres),
-      averageScore: typeof averageScore === 'number' ? averageScore : undefined,
-      format: typeof format === 'string' ? format : undefined,
-      description: typeof description === 'string' ? description : undefined,
-      userStatus: normalizeStatus(userStatus),
-      userReaction: normalizeReaction(userReaction),
-      userNote: typeof userNote === 'string' ? userNote.slice(0, 280) : undefined
-    } satisfies Anime];
+    return [
+      {
+        id: animeId,
+        title: { native: titleNative, romaji: titleRomaji, english: '' },
+        coverImage: { extraLarge: image, large: image, color: '' },
+        season: toSeason(season),
+        seasonYear: numericYear,
+        genres: parseGenres(genres),
+        averageScore: typeof averageScore === 'number' ? averageScore : undefined,
+        format: typeof format === 'string' ? format : undefined,
+        description: typeof description === 'string' ? description : undefined,
+        userStatus: normalizeStatus(userStatus),
+        userReaction: normalizeReaction(userReaction),
+        userNote: typeof userNote === 'string' ? userNote.slice(0, 280) : undefined,
+      } satisfies Anime,
+    ];
   });
 
   if (!anime.length) throw new Error('没有找到可导入的作品');

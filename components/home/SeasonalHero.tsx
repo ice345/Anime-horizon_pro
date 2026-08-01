@@ -17,14 +17,14 @@ const copy: Record<Season, { title: string; description: string }> = {
   WINTER: { title: '冬日的余白', description: '在慢一点的光线里，为下一段相遇预留位置。' },
   SPRING: { title: '春之序章', description: '微风经过，新的故事在明亮的日子里渐渐展开。' },
   SUMMER: { title: '夏日的回声', description: '热风、蝉鸣与还没说完的话，组成这一季的声音。' },
-  FALL: { title: '秋天的片段', description: '叶色渐深，把每次告别和重逢都收进年鉴。' }
+  FALL: { title: '秋天的片段', description: '叶色渐深，把每次告别和重逢都收进年鉴。' },
 };
 
 const seasonalArt: Record<Season, { src: string; alt: string }> = {
   WINTER: { src: winterSky, alt: '水彩冬日屋檐、羽毛与雪点' },
   SPRING: { src: springSky, alt: '水彩春日花枝、青鸟与远景屋檐' },
   SUMMER: { src: summerSky, alt: '水彩夏日草坡、青鸟与晴空' },
-  FALL: { src: autumnSky, alt: '水彩秋叶、青鸟与远景屋檐' }
+  FALL: { src: autumnSky, alt: '水彩秋叶、青鸟与远景屋檐' },
 };
 
 export const SeasonalHero: React.FC<SeasonalHeroProps> = ({ year, season, total, selectedCount, onSeasonChange }) => {
@@ -33,13 +33,21 @@ export const SeasonalHero: React.FC<SeasonalHeroProps> = ({ year, season, total,
   const art = seasonalArt[season];
 
   return (
-    <section aria-labelledby="season-title" className="relative overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/70 bg-yearbook-surface shadow-[var(--ah-shadow-soft)]">
+    <section
+      aria-labelledby="season-title"
+      className="relative overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/70 bg-yearbook-surface shadow-[var(--ah-shadow-soft)]"
+    >
       <img key={season} src={art.src} alt={art.alt} className="absolute inset-0 h-full w-full object-cover ah-entry" />
       <div className="absolute inset-0 bg-gradient-to-r from-white/94 via-white/72 to-white/12" />
       <div className="relative grid min-h-[320px] content-between px-6 py-7 sm:px-9 md:min-h-[350px] md:px-12 md:py-10">
         <div className="max-w-xl">
-          <p className="ah-section-label">{season} {year}</p>
-          <h1 id="season-title" className="mt-4 font-jp text-4xl font-medium tracking-normal text-yearbook-ink sm:text-5xl md:text-6xl">
+          <p className="ah-section-label">
+            {season} {year}
+          </p>
+          <h1
+            id="season-title"
+            className="mt-4 font-jp text-4xl font-medium tracking-normal text-yearbook-ink sm:text-5xl md:text-6xl"
+          >
             {seasonCopy.title}
           </h1>
           <p className="mt-4 max-w-md text-sm leading-7 text-yearbook-muted sm:text-base">{seasonCopy.description}</p>
@@ -64,8 +72,12 @@ export const SeasonalHero: React.FC<SeasonalHeroProps> = ({ year, season, total,
             })}
           </div>
           <div className="flex gap-5 text-xs text-yearbook-muted sm:text-right">
-            <span><strong className="mr-1 font-semibold text-yearbook-ink">{total || '—'}</strong>部作品</span>
-            <span><strong className="mr-1 font-semibold text-yearbook-ink">{selectedCount}</strong>部收进年鉴</span>
+            <span>
+              <strong className="mr-1 font-semibold text-yearbook-ink">{total || '—'}</strong>部作品
+            </span>
+            <span>
+              <strong className="mr-1 font-semibold text-yearbook-ink">{selectedCount}</strong>部收进年鉴
+            </span>
             <span className="hidden sm:inline">{seasonName}导览</span>
           </div>
         </div>

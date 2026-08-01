@@ -3,10 +3,12 @@ services:
     name: anime-horizon
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    buildCommand: npm ci && npm run build
     startCommand: npm run start
     envVars:
       - key: NODE_VERSION
-        value: 22
+        value: 24
       - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
         sync: false
