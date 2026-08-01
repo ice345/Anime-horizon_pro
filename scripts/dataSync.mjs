@@ -37,7 +37,10 @@ const targetYears = (() => {
     }
   }
   if (targetYearsArg) {
-    return targetYearsArg.split(',').map((y) => Number(y.trim())).filter(Boolean);
+    return targetYearsArg
+      .split(',')
+      .map((y) => Number(y.trim()))
+      .filter(Boolean);
   }
   return [currentSeason().year];
 })();
@@ -105,7 +108,7 @@ async function fetchSeason(year, season, retries = 0) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Accept': 'application/json',
+        Accept: 'application/json',
       },
       body: JSON.stringify({
         query: `query ($year: Int, $season: MediaSeason, $page: Int, $perPage: Int) {
@@ -198,7 +201,7 @@ async function downloadImages(animeList) {
       anime.coverImage.extraLarge = `/data/images/${filename}`;
       anime.coverImage.large = `/data/images/${filename}`;
       return anime; // Already cached
-    } catch (_) {
+    } catch {
       // continue to download
     }
 
@@ -234,10 +237,7 @@ async function writeYear(year, animeList) {
   const publicPath = path.join(publicDataDir, `anime-${year}.json`);
   const rawPath = path.join(dataDir, `anime-${year}.json`);
 
-  await Promise.all([
-    fs.writeFile(publicPath, json, 'utf8'),
-    fs.writeFile(rawPath, json, 'utf8'),
-  ]);
+  await Promise.all([fs.writeFile(publicPath, json, 'utf8'), fs.writeFile(rawPath, json, 'utf8')]);
 
   await writeIndex(payload);
 }
@@ -262,7 +262,7 @@ async function yearDataExists(year) {
   try {
     await fs.access(path.join(publicDataDir, `anime-${year}.json`));
     return true;
-  } catch (_) {
+  } catch {
     return false;
   }
 }
@@ -278,7 +278,7 @@ async function readSyncMeta() {
   try {
     const raw = await fs.readFile(metaPath, 'utf8');
     return JSON.parse(raw);
-  } catch (_) {
+  } catch {
     return null;
   }
 }
@@ -321,19 +321,22 @@ async function bootstrap() {
   if (!runScheduler) return;
 
   console.log('\nScheduler enabled. Checking every 6 hours for new season/year...');
-  setInterval(async () => {
-    try {
-      const now = currentSeason();
-      const meta = await readSyncMeta();
-      const changed = !meta || meta.lastYear !== now.year || meta.lastSeason !== now.season;
-      if (changed) {
-        console.log(`\n[Scheduler] Detected new season/year (${now.year} ${now.season}). Refreshing...`);
-        await fetchYear(now.year);
+  setInterval(
+    async () => {
+      try {
+        const now = currentSeason();
+        const meta = await readSyncMeta();
+        const changed = !meta || meta.lastYear !== now.year || meta.lastSeason !== now.season;
+        if (changed) {
+          console.log(`\n[Scheduler] Detected new season/year (${now.year} ${now.season}). Refreshing...`);
+          await fetchYear(now.year);
+        }
+      } catch (err) {
+        console.error('[Scheduler] failed', err);
       }
-    } catch (err) {
-      console.error('[Scheduler] failed', err);
-    }
-  }, 30 * 24 * 60 * 60 * 1000);
+    },
+    30 * 24 * 60 * 60 * 1000
+  );
 }
 
 bootstrap().catch((err) => {

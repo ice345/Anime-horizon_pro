@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Anime } from '../types';
 import { generateArchiveSql } from '../services/archiveSql';
+import { useModalA11y } from '../hooks/useModalA11y';
 
 interface SqlExportModalProps {
   isOpen: boolean;
@@ -10,6 +11,8 @@ interface SqlExportModalProps {
 
 export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose, selectedAnime }) => {
   const [copyState, setCopyState] = useState<'idle' | 'copied' | 'error'>('idle');
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalA11y(isOpen, onClose, dialogRef);
 
   if (!isOpen) return null;
 
@@ -71,8 +74,14 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
 
   return (
     <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto bg-black/80 p-4 backdrop-blur-xl animate-fade-in sm:items-center">
-      <div role="dialog" aria-modal="true" aria-labelledby="sql-export-title" className="my-2 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/10 bg-[#121212] shadow-[0_0_50px_rgba(0,0,0,0.5)] sm:my-0">
-        
+      <div
+        ref={dialogRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sql-export-title"
+        className="my-2 flex max-h-[calc(100dvh-2rem)] min-h-0 w-full max-w-4xl flex-col overflow-hidden rounded-[var(--ah-radius-lg)] border border-white/10 bg-[#121212] shadow-[0_0_50px_rgba(0,0,0,0.5)] sm:my-0"
+      >
         {/* Header */}
         <div className="flex shrink-0 items-center justify-between border-b border-white/5 bg-gradient-to-r from-blue-600/10 to-transparent p-5 sm:p-6">
           <div>
@@ -83,8 +92,19 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
               将当前选中的 {selectedAnime.length} 部番剧导出为 MySQL 兼容格式。包含封面、简介与评分。
             </p>
           </div>
-          <button type="button" aria-label="关闭年鉴数据导出" onClick={onClose} className="rounded-full p-2 text-gray-500 transition-colors hover:bg-white/5 hover:text-white">
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <button
+            type="button"
+            aria-label="关闭年鉴数据导出"
+            onClick={onClose}
+            className="rounded-full p-2 text-gray-500 transition-colors hover:bg-white/5 hover:text-white"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              className="h-6 w-6"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -92,41 +112,46 @@ export const SqlExportModal: React.FC<SqlExportModalProps> = ({ isOpen, onClose,
 
         {/* Code Block */}
         <div className="relative h-[55dvh] min-h-[240px] max-h-[640px] flex-1 overflow-hidden bg-[#080808]">
-          <pre tabIndex={0} aria-label="SQL 导出内容" className="custom-scrollbar absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-5 pb-20 font-mono text-xs leading-relaxed text-emerald-400/90 sm:p-6 sm:pb-20 sm:text-sm">
+          <pre
+            tabIndex={0}
+            aria-label="SQL 导出内容"
+            className="custom-scrollbar absolute inset-0 overflow-auto whitespace-pre-wrap break-words p-5 pb-20 font-mono text-xs leading-relaxed text-emerald-400/90 sm:p-6 sm:pb-20 sm:text-sm"
+          >
             {sqlCode}
           </pre>
-          
+
           <div className="absolute top-4 right-4 flex max-w-[calc(100%-2rem)] flex-wrap justify-end gap-2">
-             <button
-                type="button"
-                onClick={handleDownload}
-                className="rounded-lg border border-white/15 bg-[#171717] px-3 py-2 text-sm font-bold text-gray-200 shadow-lg transition hover:border-white/30 hover:bg-[#222]"
-             >
-               下载 .sql
-             </button>
-             <button
-                type="button"
-                onClick={() => void handleCopy()}
-                className={`
+            <button
+              type="button"
+              onClick={handleDownload}
+              className="rounded-lg border border-white/15 bg-[#171717] px-3 py-2 text-sm font-bold text-gray-200 shadow-lg transition hover:border-white/30 hover:bg-[#222]"
+            >
+              下载 .sql
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleCopy()}
+              className={`
                   flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold shadow-lg transition-all border
-                  ${copyState === 'copied'
-                    ? 'bg-emerald-500 border-emerald-400 text-white' 
-                    : copyState === 'error'
-                      ? 'bg-rose-500 border-rose-400 text-white'
-                      : 'bg-[#171717] hover:bg-[#222] text-gray-200 border-white/15 hover:border-white/30'}
+                  ${
+                    copyState === 'copied'
+                      ? 'bg-emerald-500 border-emerald-400 text-white'
+                      : copyState === 'error'
+                        ? 'bg-rose-500 border-rose-400 text-white'
+                        : 'bg-[#171717] hover:bg-[#222] text-gray-200 border-white/15 hover:border-white/30'
+                  }
                 `}
-             >
-               {copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败，请手动选择' : '复制 SQL'}
-             </button>
+            >
+              {copyState === 'copied' ? '已复制' : copyState === 'error' ? '复制失败，请手动选择' : '复制 SQL'}
+            </button>
           </div>
         </div>
 
         {/* Footer */}
         <div className="flex shrink-0 items-center justify-between border-t border-white/5 bg-[#0a0a0c] p-4 text-xs text-gray-500">
-           <span>适用于 MySQL 8.0+ 或 MariaDB</span>
-           <span className="font-mono opacity-50">{sqlCode.length.toLocaleString()} chars</span>
+          <span>适用于 MySQL 8.0+ 或 MariaDB</span>
+          <span className="font-mono opacity-50">{sqlCode.length.toLocaleString()} chars</span>
         </div>
-
       </div>
     </div>
   );

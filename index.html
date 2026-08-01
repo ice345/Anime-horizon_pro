@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -11,7 +11,10 @@
     <meta property="og:title" content="Anime Horizon" />
     <meta property="og:description" content="新番导视、补番记录、偏好测评与小游戏。" />
     <meta property="og:type" content="website" />
-    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+    <link
+      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap"
+      rel="stylesheet"
+    />
     <style>
       :root {
         --ah-paper: #fbfaf7;
@@ -36,10 +39,10 @@
         overflow-x: hidden;
         min-height: 100vh;
       }
-      
+
       /* Noise Texture Overlay */
       body::before {
-        content: "";
+        content: '';
         position: fixed;
         top: 0;
         left: 0;
@@ -52,13 +55,13 @@
       }
 
       .scrollbar-hide::-webkit-scrollbar {
-          display: none;
+        display: none;
       }
       .scrollbar-hide {
-          -ms-overflow-style: none;
-          scrollbar-width: none;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
       }
-      
+
       .custom-scrollbar::-webkit-scrollbar {
         width: 5px;
       }
@@ -103,10 +106,16 @@
       }
 
       @keyframes ahEntry {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
+        from {
+          opacity: 0;
+          transform: translateY(10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
       }
-      
+
       /* Smooth selection */
       ::selection {
         background: var(--ah-primary-soft);
@@ -114,7 +123,9 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        *, *::before, *::after {
+        *,
+        *::before,
+        *::after {
           animation-duration: 0.01ms !important;
           animation-iteration-count: 1 !important;
           scroll-behavior: auto !important;
@@ -122,9 +133,9 @@
         }
       }
     </style>
-</head>
+  </head>
   <body>
     <div id="root"></div>
-  <script type="module" src="/index.tsx"></script>
-</body>
+    <script type="module" src="/index.tsx"></script>
+  </body>
 </html>

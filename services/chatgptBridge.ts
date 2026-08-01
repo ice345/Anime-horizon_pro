@@ -29,10 +29,13 @@ export const openChatGPT = () => {
 const titleOf = (anime: Anime) => anime.title.native || anime.title.romaji || anime.title.english || '未命名作品';
 
 export const buildPortraitImagePrompt = (scopeTitle: string, anime: Anime[], profile: TasteProfile) => {
-  const entries = anime.slice(0, 36).map((item) => {
-    const note = item.userNote?.trim() ? `；短评：${item.userNote.trim()}` : '';
-    return `${titleOf(item)}（${item.seasonYear || '未知年份'}；${item.userReaction || 'NEUTRAL'}；${item.genres?.slice(0, 3).join('/ ') || '动画'}${note}）`;
-  }).join('\n');
+  const entries = anime
+    .slice(0, 36)
+    .map((item) => {
+      const note = item.userNote?.trim() ? `；短评：${item.userNote.trim()}` : '';
+      return `${titleOf(item)}（${item.seasonYear || '未知年份'}；${item.userReaction || 'NEUTRAL'}；${item.genres?.slice(0, 3).join('/ ') || '动画'}${note}）`;
+    })
+    .join('\n');
 
   return `请根据以下动画年鉴，直接生成一张竖版 3:4 的“${scopeTitle}”插画，不要先解释。画面不需要出现人物肖像或任何已有动画角色，也不要出现文字、Logo、标题、水印。
 
